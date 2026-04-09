@@ -35,5 +35,6 @@ export const ADMIN_EMAILS = [
   'varnothsavasode@gmail.com',
   'Shabana.ds@sode-edu.in',
   'ranjan.cs@sode-edu.in',
+  'sarvesh.ds@sode-edu.in',
   process.env.ADMIN_EMAIL || '',
 ].filter(Boolean);
