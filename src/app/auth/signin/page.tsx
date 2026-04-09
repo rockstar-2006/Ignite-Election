@@ -27,7 +27,6 @@ function SignInContent() {
         'OAuthCallback': 'Invalid OAuth callback. This usually means the redirect URL doesn\'t match Google Console configuration.',
         'OAuthCreateAccount': 'Could not create your account. Please contact support.',
         'EmailCreateAccount': 'Email account creation failed. Please try again.',
-        'Callback': 'Callback error during authentication. Please try again.',
         'EventError': 'An error occurred during authentication.',
         'AccessDenied': 'Access was denied. Only @sode-edu.in email addresses are allowed.',
         'CredentialsSignin': 'Invalid credentials. Please try again.',
