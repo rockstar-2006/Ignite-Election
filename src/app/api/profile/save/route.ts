@@ -24,6 +24,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Enforce max 1 nomination
+    if (data.nominations && data.nominations.length > 1) {
+      return NextResponse.json(
+        { error: 'You can only apply for 1 position.' },
+        { status: 400 }
+      );
+    }
+
     // Create or update profile using Firebase Admin SDK
     const docRef = adminDb.collection('users').doc(data.email);
     

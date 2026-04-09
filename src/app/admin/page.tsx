@@ -204,7 +204,7 @@ export default function AdminDashboard() {
                    <div className="p-8">
                       <div className="flex items-center gap-2 mb-4">
                          <div className="w-1.5 h-4 bg-blue-900 rounded-full"></div>
-                         <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Positions Selected ({candidate.nominations.length}/3)</h5>
+                         <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Positions Selected ({candidate.nominations.length}/1)</h5>
                       </div>
                       <div className="flex flex-wrap gap-2">
                          {candidate.nominations.map((pos) => (

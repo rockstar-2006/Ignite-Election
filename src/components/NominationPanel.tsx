@@ -31,8 +31,8 @@ export default function NominationPanel({ semester, email, initialNominations, d
     if (newNominations.includes(postId)) {
       newNominations = newNominations.filter(id => id !== postId);
     } else {
-      if (newNominations.length >= 3) {
-        alert("Maximum Limit: You can only apply for 3 positions.");
+      if (newNominations.length >= 1) {
+        alert("Maximum Limit: You can only apply for 1 position.");
         return;
       }
       newNominations.push(postId);
@@ -67,14 +67,14 @@ export default function NominationPanel({ semester, email, initialNominations, d
         </div>
         <div className="flex items-center gap-3 px-6 py-2 bg-slate-100 rounded-lg border border-slate-200">
           <FileText className="w-4 h-4 text-slate-500" />
-          <span className="text-[11px] font-black text-slate-700 tracking-widest uppercase">{draftNominations.length} / 3 SUBMITTED</span>
+          <span className="text-[11px] font-black text-slate-700 tracking-widest uppercase">{draftNominations.length} / 1 SUBMITTED</span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {posts.map((post) => {
           const isSelected = draftNominations.includes(post.id);
-          const isLimitReached = draftNominations.length >= 3 && !isSelected;
+          const isLimitReached = draftNominations.length >= 1 && !isSelected;
           const isOriginallyApplied = initialNominations.includes(post.id);
           
           return (

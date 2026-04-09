@@ -124,7 +124,7 @@ export default function Dashboard() {
               <div>
                 <h4 className="text-sm font-bold text-blue-900">Official Instructions</h4>
                 <p className="text-xs text-blue-800 leading-relaxed mt-1 font-medium italic">
-                  Select your desired council post from the list above and click the "OFFICIALLY SUBMIT" button to record your choices. You can withdraw and re-apply anytime before the deadline.
+                  Select your desired council post from the list above and click the "OFFICIALLY SUBMIT" button to record your choice. You can only apply for one position. You may withdraw and re-apply anytime before the deadline.
                 </p>
               </div>
             </div>
