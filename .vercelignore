@@ -1,0 +1,51 @@
+# Vercel Ignore File
+# Files to exclude from deployment
+
+# Git
+.git
+.gitignore
+.github
+
+# Local Development
+.env.local
+.env.development.local
+.next
+node_modules
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Build files
+dist
+build
+out
+
+# Documentation (optional - comment out if you want docs)
+*.md
+docs/
+README.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Testing
+.test/
+__tests__/
+coverage/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
