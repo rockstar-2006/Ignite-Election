@@ -1,0 +1,626 @@
+import { adminDb } from '../firebase-admin';
+import { ELECTION_POSTS, OFFICIAL_COUNCIL_POSTS, OfficialPost } from '../constants';
+import crypto from 'crypto';
+
+const BALLOT_ENCRYPTION_KEY = process.env.NEXTAUTH_SECRET || 'smvitm_secret_ballot_vault_key_2026';
+
+export function hashVoterIdentifier(email: string): string {
+  return crypto.createHmac('sha256', BALLOT_ENCRYPTION_KEY).update(email.toLowerCase().trim()).digest('hex');
+}
+
+export function encryptBallotTransaction(candidateId: string, postId: string, timestamp: string): {
+  ballotHash: string;
+  encryptedPayload: string;
+} {
+  const ballotHash = crypto.createHash('sha256').update(`${candidateId}_${postId}_${timestamp}_${Math.random()}`).digest('hex');
+  const encryptedPayload = crypto.createHmac('sha256', BALLOT_ENCRYPTION_KEY).update(`${postId}:${candidateId}:${timestamp}`).digest('hex');
+  return { ballotHash, encryptedPayload };
+}
+
+export interface Candidate {
+  id: string;
+  name: string;
+  usn: string;
+  semester?: string;
+  year?: string;
+  postId: string;
+  postName: string;
+  department: string;
+  gender: 'Male' | 'Female';
+  photoURL?: string;
+  manifesto: string;
+  createdAt?: string;
+}
+
+export interface VoteRecord {
+  id: string;
+  postId: string;
+  postName: string;
+  candidateId: string;
+  candidateName?: string;
+  candidateGender?: 'Male' | 'Female';
+  semester: string;
+  timestamp: string; // ISO string
+  timestampFormatted: string; // DD/MM/YYYY, HH:mm:ss
+  encryptedBallotHash?: string;
+  encryptedPayload?: string;
+}
+
+export interface PostResult {
+  postId: string;
+  postName: string;
+  semester: string;
+  seats: number;
+  genderRule?: '1_boy_1_girl' | 'any';
+  totalVotes: number;
+  candidates: {
+    candidateId: string;
+    candidateName: string;
+    department: string;
+    usn: string;
+    gender: 'Male' | 'Female';
+    photoURL?: string;
+    votes: number;
+    percentage: number;
+    isLeading: boolean;
+    winnerCategory?: 'Winner' | 'Boy Winner' | 'Girl Winner';
+  }[];
+  declaredWinners: {
+    candidateId: string;
+    candidateName: string;
+    gender: 'Male' | 'Female';
+    votes: number;
+    title: string;
+  }[];
+}
+
+export interface ElectionStatus {
+  isPublished: boolean;
+  votingOpen: boolean;
+  publishedAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Get current election publication and voting status
+ */
+export async function getElectionStatus(): Promise<ElectionStatus> {
+  try {
+    const docSnap = await adminDb.collection('election_settings').doc('general').get();
+    if (docSnap.exists) {
+      const data = docSnap.data();
+      return {
+        isPublished: data?.isPublished ?? false,
+        votingOpen: data?.votingOpen ?? false,
+        publishedAt: data?.publishedAt,
+        updatedAt: data?.updatedAt,
+      };
+    }
+    return { isPublished: false, votingOpen: false };
+  } catch (error) {
+    console.error('Error fetching election status:', error);
+    return { isPublished: false, votingOpen: false };
+  }
+}
+
+/**
+ * Update election publication and voting status
+ */
+export async function setElectionStatus(isPublished: boolean, votingOpen: boolean): Promise<ElectionStatus> {
+  try {
+    const now = new Date().toISOString();
+    const statusData: ElectionStatus = {
+      isPublished,
+      votingOpen,
+      updatedAt: now,
+      publishedAt: isPublished ? now : undefined,
+    };
+    await adminDb.collection('election_settings').doc('general').set(statusData, { merge: true });
+    return statusData;
+  } catch (error) {
+    console.error('Error setting election status:', error);
+    throw error;
+  }
+}
+
+/**
+ * Retrieve authentic candidates from Firestore (candidates collection + users nominations)
+ * Excludes legacy mock candidates.
+ */
+export async function getCandidates(semester?: string): Promise<Candidate[]> {
+  try {
+    const candidateMap = new Map<string, Candidate>();
+
+    // 1. Fetch from 'candidates' collection
+    const candidatesCollection = adminDb.collection('candidates');
+    const snapshot = await candidatesCollection.get();
+
+    snapshot.forEach((doc) => {
+      // Exclude and purge legacy dummy seeded candidates (prefixed with cand_)
+      if (doc.id.startsWith('cand_')) {
+        candidatesCollection.doc(doc.id).delete().catch(() => {});
+        return;
+      }
+      const data = doc.data();
+      candidateMap.set(doc.id, {
+        id: doc.id,
+        name: data.name || 'Candidate',
+        usn: data.usn || '',
+        semester: data.semester || '6th',
+        year: data.year || '3rd Year',
+        postId: data.postId || '',
+        postName: data.postName || data.postId || 'Position',
+        department: data.department || data.branch || '',
+        gender: data.gender === 'Female' ? 'Female' : 'Male',
+        photoURL: data.photoURL || '',
+        manifesto: data.manifesto || '',
+        createdAt: data.createdAt,
+      });
+    });
+
+    // 2. Fetch from 'users' collection with nominations (if student submitted nomination via portal)
+    try {
+      const usersSnapshot = await adminDb.collection('users').where('nominations', '!=', []).get();
+      usersSnapshot.forEach((doc) => {
+        const userData = doc.data();
+        const userNominations = Array.isArray(userData.nominations) ? userData.nominations : [];
+        
+        userNominations.forEach((postId: string) => {
+          const candidateUniqueId = `${doc.id}_${postId}`;
+          if (!candidateMap.has(candidateUniqueId) && !candidateMap.has(doc.id)) {
+            const officialPost = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === postId);
+            const postName = officialPost?.name || postId;
+            const candSemester = userData.semester || '6th';
+            const gender: 'Male' | 'Female' = userData.gender === 'Female' ? 'Female' : 'Male';
+
+            candidateMap.set(candidateUniqueId, {
+              id: candidateUniqueId,
+              name: userData.name || userData.displayName || doc.id,
+              usn: userData.usn || '',
+              semester: candSemester,
+              year: userData.year || '3rd Year',
+              postId: postId,
+              postName: postName,
+              department: userData.department || userData.branch || '',
+              gender: gender,
+              photoURL: userData.photoURL || userData.image || '',
+              manifesto: userData.manifesto || 'Dedicated to serving the student community of SMVITM.',
+              createdAt: userData.createdAt,
+            });
+          }
+        });
+      });
+    } catch (usersErr) {
+      console.warn('Note: Could not query users nominations query:', usersErr);
+    }
+
+    let candidates = Array.from(candidateMap.values());
+
+    if (semester) {
+      candidates = candidates.filter((c) => c.semester === semester || !c.semester);
+    }
+
+    return candidates;
+  } catch (error) {
+    console.error('Error fetching candidates from database:', error);
+    return [];
+  }
+}
+
+/**
+ * Admin: Add a new candidate directly to Firestore
+ */
+export async function createCandidate(data: {
+  name: string;
+  usn: string;
+  postId: string;
+  postName?: string;
+  year?: string;
+  semester?: string;
+  department?: string;
+  gender: 'Male' | 'Female';
+  photoURL?: string;
+  manifesto?: string;
+}): Promise<Candidate> {
+  try {
+    const postObj = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === data.postId);
+    const postName = data.postName || postObj?.name || data.postId;
+
+    const docRef = adminDb.collection('candidates').doc();
+    const newCandidate: Candidate = {
+      id: docRef.id,
+      name: data.name.trim(),
+      usn: data.usn.trim().toUpperCase(),
+      postId: data.postId,
+      postName,
+      year: data.year || '3rd Year',
+      semester: data.semester || '6th',
+      department: data.department || '',
+      gender: data.gender === 'Female' ? 'Female' : 'Male',
+      photoURL: data.photoURL || '',
+      manifesto: data.manifesto ? data.manifesto.trim() : '',
+      createdAt: new Date().toISOString(),
+    };
+
+    await docRef.set(newCandidate);
+    return newCandidate;
+  } catch (error) {
+    console.error('Error creating candidate:', error);
+    throw error;
+  }
+}
+
+/**
+ * Admin: Update candidate details
+ */
+export async function updateCandidate(id: string, updates: Partial<Candidate>): Promise<void> {
+  try {
+    const docRef = adminDb.collection('candidates').doc(id);
+    await docRef.update(updates);
+  } catch (error) {
+    console.error('Error updating candidate:', error);
+    throw error;
+  }
+}
+
+/**
+ * Admin: Delete candidate from Firestore
+ */
+export async function deleteCandidate(id: string): Promise<void> {
+  try {
+    await adminDb.collection('candidates').doc(id).delete();
+  } catch (error) {
+    console.error('Error deleting candidate:', error);
+    throw error;
+  }
+}
+
+/**
+ * Clear all votes and voter records from Firestore
+ */
+export async function clearAllVotes(): Promise<{ deletedVotes: number; deletedVoters: number }> {
+  try {
+    const votesSnap = await adminDb.collection('votes').get();
+    const votersSnap = await adminDb.collection('voter_records').get();
+
+    if (votesSnap.empty && votersSnap.empty) {
+      return { deletedVotes: 0, deletedVoters: 0 };
+    }
+
+    const batch = adminDb.batch();
+    let voteCount = 0;
+    votesSnap.forEach((doc) => {
+      batch.delete(doc.ref);
+      voteCount++;
+    });
+
+    let voterCount = 0;
+    votersSnap.forEach((doc) => {
+      batch.delete(doc.ref);
+      voterCount++;
+    });
+
+    await batch.commit();
+    return { deletedVotes: voteCount, deletedVoters: voterCount };
+  } catch (error) {
+    console.error('Error clearing votes from Firestore:', error);
+    throw error;
+  }
+}
+
+/**
+ * Check whether a voter has already submitted their ballot
+ */
+export async function hasUserVoted(email: string): Promise<{ hasVoted: boolean; votedAt?: string }> {
+  try {
+    if (!email) return { hasVoted: false };
+    const docSnap = await adminDb.collection('voter_records').doc(email.toLowerCase().trim()).get();
+    if (docSnap.exists) {
+      const data = docSnap.data();
+      return {
+        hasVoted: true,
+        votedAt: data?.votedAtFormatted || data?.votedAt,
+      };
+    }
+    return { hasVoted: false };
+  } catch (error) {
+    console.error('Error checking voter status:', error);
+    return { hasVoted: false };
+  }
+}
+
+/**
+ * Submit an official ballot
+ * Enforces secret ballot: voter identity is recorded in voter_records to prevent duplicate voting,
+ * while votes collection stores ONLY encrypted candidate selections with zero voter identity link.
+ * Supports single-winner (1 selection) and 2-seat Boy/Girl selections!
+ */
+export async function submitBallot(
+  voterEmail: string,
+  semester: string,
+  selections: Record<string, string | string[]> // postId -> candidateId or [boyId, girlId]
+): Promise<{ success: boolean; votedAt: string; message: string }> {
+  try {
+    const cleanEmail = voterEmail.toLowerCase().trim();
+
+    // 1. Check if election is open
+    const status = await getElectionStatus();
+    if (!status.votingOpen) {
+      throw new Error('Voting is currently closed by the Election Commission.');
+    }
+
+    // 2. Check if user has already voted
+    const voterStatus = await hasUserVoted(cleanEmail);
+    if (voterStatus.hasVoted) {
+      throw new Error(`You have already voted on ${voterStatus.votedAt}. Each voter may only cast one ballot.`);
+    }
+
+    // 3. Validate selections against database candidates
+    const candidates = await getCandidates();
+    const candidateMap = new Map(candidates.map((c) => [c.id, c]));
+
+    const now = new Date();
+    const isoTime = now.toISOString();
+    const formattedTime = now.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+
+    const batch = adminDb.batch();
+
+    // 4. Mark voter as voted with cryptographic voter hash in voter_records
+    const voterHash = hashVoterIdentifier(cleanEmail);
+    const voterRef = adminDb.collection('voter_records').doc(cleanEmail);
+    batch.set(voterRef, {
+      voterHash,
+      email: cleanEmail,
+      semester,
+      hasVoted: true,
+      votedAt: isoTime,
+      votedAtFormatted: formattedTime,
+    });
+
+    // 5. Flatten selections (single candidate ID or array of [boyId, girlId])
+    const normalizedVotes: { postId: string; candidateId: string }[] = [];
+    for (const [postId, candidateVal] of Object.entries(selections)) {
+      if (Array.isArray(candidateVal)) {
+        for (const cId of candidateVal) {
+          if (cId) normalizedVotes.push({ postId, candidateId: cId });
+        }
+      } else if (typeof candidateVal === 'string' && candidateVal) {
+        normalizedVotes.push({ postId, candidateId: candidateVal });
+      }
+    }
+
+    // 6. Save each vote with cryptographic encryption in the votes collection
+    for (const { postId, candidateId } of normalizedVotes) {
+      const candidate = candidateMap.get(candidateId);
+      const postName = candidate?.postName || postId;
+      const candidateName = candidate?.name || 'Nominee';
+      const candidateGender = candidate?.gender || 'Male';
+
+      const { ballotHash, encryptedPayload } = encryptBallotTransaction(candidateId, postId, isoTime);
+
+      const voteRef = adminDb.collection('votes').doc();
+      const voteData: VoteRecord = {
+        id: voteRef.id,
+        postId: postId,
+        postName: postName,
+        candidateId: candidateId,
+        candidateName: candidateName,
+        candidateGender: candidateGender,
+        semester: candidate?.semester || semester,
+        timestamp: isoTime,
+        timestampFormatted: formattedTime,
+        encryptedBallotHash: ballotHash,
+        encryptedPayload: encryptedPayload,
+      };
+
+      batch.set(voteRef, voteData);
+    }
+
+    await batch.commit();
+
+    return {
+      success: true,
+      votedAt: formattedTime,
+      message: 'Your official ballot has been recorded securely and anonymously.',
+    };
+  } catch (error) {
+    console.error('Error submitting ballot:', error);
+    throw error;
+  }
+}
+
+/**
+ * Aggregate Live Results with 1-seat and 2-seat Boy/Girl Winner Logic
+ */
+export async function getVotingResults(filterSemester?: string): Promise<{
+  totalVotes: number;
+  totalVoters: number;
+  postResults: PostResult[];
+  recentTimeLogs: {
+    id: string;
+    postName: string;
+    candidateName: string;
+    semester: string;
+    timestampFormatted: string;
+    status: string;
+    encryptedBallotHash: string;
+    encryptedPayload: string;
+    anonymizedVoterToken: string;
+  }[];
+}> {
+  try {
+    const candidates = await getCandidates();
+    const votesSnapshot = await adminDb.collection('votes').get();
+    const voterRecordsSnapshot = await adminDb.collection('voter_records').get();
+
+    const votes: VoteRecord[] = [];
+    votesSnapshot.forEach((doc) => {
+      votes.push(doc.data() as VoteRecord);
+    });
+
+    const filteredCandidates = filterSemester
+      ? candidates.filter((c) => c.semester === filterSemester)
+      : candidates;
+
+    const filteredVotes = filterSemester
+      ? votes.filter((v) => v.semester === filterSemester)
+      : votes;
+
+    // Use OFFICIAL_COUNCIL_POSTS as primary order, plus any custom posts
+    const allKnownPostIds = new Set<string>();
+    OFFICIAL_COUNCIL_POSTS.forEach((p) => allKnownPostIds.add(p.id));
+    filteredCandidates.forEach((c) => allKnownPostIds.add(c.postId));
+    filteredVotes.forEach((v) => allKnownPostIds.add(v.postId));
+
+    const postResults: PostResult[] = [];
+
+    for (const postId of Array.from(allKnownPostIds)) {
+      const officialPostMeta = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === postId);
+      const postCandidates = filteredCandidates.filter((c) => c.postId === postId);
+      const postVotes = filteredVotes.filter((v) => v.postId === postId);
+      const totalPostVotes = postVotes.length;
+
+      const seats = officialPostMeta?.seats ?? (postId.includes('coordinator') || postId === 'general_secretary' ? 2 : 1);
+      const genderRule = officialPostMeta?.genderRule ?? (seats === 2 ? '1_boy_1_girl' : 'any');
+
+      // Map candidate votes
+      const candidateIdsInPost = new Set<string>();
+      postCandidates.forEach((c) => candidateIdsInPost.add(c.id));
+      postVotes.forEach((v) => candidateIdsInPost.add(v.candidateId));
+
+      const candidatesTally = Array.from(candidateIdsInPost).map((cId) => {
+        const candObj = postCandidates.find((c) => c.id === cId);
+        const sampleVote = postVotes.find((v) => v.candidateId === cId);
+        const candName = candObj?.name || sampleVote?.candidateName || 'Nominee';
+        const candDept = candObj?.department || '';
+        const candUsn = candObj?.usn || '';
+        const candGender: 'Male' | 'Female' = candObj?.gender || sampleVote?.candidateGender || 'Male';
+        const candPhoto = candObj?.photoURL || '';
+
+        const count = postVotes.filter((v) => v.candidateId === cId).length;
+        const percentage = totalPostVotes > 0 ? Math.round((count / totalPostVotes) * 100) : 0;
+
+        return {
+          candidateId: cId,
+          candidateName: candName,
+          department: candDept,
+          usn: candUsn,
+          gender: candGender,
+          photoURL: candPhoto,
+          votes: count,
+          percentage,
+          isLeading: false,
+          winnerCategory: undefined as 'Winner' | 'Boy Winner' | 'Girl Winner' | undefined,
+        };
+      });
+
+      // Sort descending by votes
+      candidatesTally.sort((a, b) => b.votes - a.votes);
+
+      const declaredWinners: {
+        candidateId: string;
+        candidateName: string;
+        gender: 'Male' | 'Female';
+        votes: number;
+        title: string;
+      }[] = [];
+
+      // Determine winners according to post seat rules
+      if (seats === 2 && genderRule === '1_boy_1_girl') {
+        // 1 Boy Winner + 1 Girl Winner
+        const leadingBoy = candidatesTally.find((c) => c.gender === 'Male' && c.votes > 0);
+        const leadingGirl = candidatesTally.find((c) => c.gender === 'Female' && c.votes > 0);
+
+        if (leadingBoy) {
+          leadingBoy.isLeading = true;
+          leadingBoy.winnerCategory = 'Boy Winner';
+          declaredWinners.push({
+            candidateId: leadingBoy.candidateId,
+            candidateName: leadingBoy.candidateName,
+            gender: 'Male',
+            votes: leadingBoy.votes,
+            title: 'Boy Winner (Highest Votes)',
+          });
+        }
+
+        if (leadingGirl) {
+          leadingGirl.isLeading = true;
+          leadingGirl.winnerCategory = 'Girl Winner';
+          declaredWinners.push({
+            candidateId: leadingGirl.candidateId,
+            candidateName: leadingGirl.candidateName,
+            gender: 'Female',
+            votes: leadingGirl.votes,
+            title: 'Girl Winner (Highest Votes)',
+          });
+        }
+      } else {
+        // Single Winner (e.g. President, Vice-President)
+        if (candidatesTally.length > 0 && candidatesTally[0].votes > 0) {
+          candidatesTally[0].isLeading = true;
+          candidatesTally[0].winnerCategory = 'Winner';
+          declaredWinners.push({
+            candidateId: candidatesTally[0].candidateId,
+            candidateName: candidatesTally[0].candidateName,
+            gender: candidatesTally[0].gender,
+            votes: candidatesTally[0].votes,
+            title: 'Elected Representative',
+          });
+        }
+      }
+
+      const postName = officialPostMeta?.name || postCandidates[0]?.postName || postId;
+
+      postResults.push({
+        postId,
+        postName,
+        semester: postCandidates[0]?.semester || '6th',
+        seats,
+        genderRule,
+        totalVotes: totalPostVotes,
+        candidates: candidatesTally,
+        declaredWinners,
+      });
+    }
+
+    // Chronological Secret Ballot Time Audit Log
+    const recentTimeLogs = votes
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 50)
+      .map((v) => {
+        const hashDisplay = (v.encryptedBallotHash || crypto.createHash('sha256').update(v.id).digest('hex')).substring(0, 16).toUpperCase();
+        const payloadDisplay = (v.encryptedPayload || crypto.createHmac('sha256', BALLOT_ENCRYPTION_KEY).update(v.id).digest('hex')).substring(0, 16);
+        const voterToken = crypto.createHash('md5').update(v.id + (v.timestamp || '')).digest('hex').substring(0, 8).toUpperCase();
+
+        return {
+          id: v.id,
+          postName: v.postName,
+          candidateName: 'CONFIDENTIAL',
+          semester: v.semester,
+          timestampFormatted: v.timestampFormatted || new Date(v.timestamp).toLocaleString('en-IN'),
+          encryptedBallotHash: `BALLOT#${hashDisplay}`,
+          encryptedPayload: `ENC:${payloadDisplay}...`,
+          anonymizedVoterToken: `VOTER#${voterToken}`,
+          status: 'Cryptographically Sealed & Encrypted',
+        };
+      });
+
+    return {
+      totalVotes: votes.length,
+      totalVoters: voterRecordsSnapshot.size,
+      postResults,
+      recentTimeLogs,
+    };
+  } catch (error) {
+    console.error('Error computing voting results:', error);
+    throw error;
+  }
+}

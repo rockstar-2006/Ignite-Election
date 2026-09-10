@@ -1,74 +1,139 @@
 @import "tailwindcss";
 
 :root {
-  --primary: #1e3a8a;
-  --primary-dark: #1e40af;
-  --background: #f1f5f9;
-  --font-main: 'Inter', system-ui, sans-serif;
+  /* SMVITM Official Color Identity */
+  --kumkum: #7B1436;
+  --kumkum-hover: #931841;
+  --kumkum-light: #FDF2F4;
+  --kumkum-border: #F0C4CE;
+
+  --chandan: #C59048;
+  --chandan-dark: #A37332;
+  --chandan-light: #FAF3E8;
+  --chandan-border: #E8D3B5;
+
+  --neel: #122147;
+  --neel-dark: #0A1329;
+  --neel-light: #F0F4FA;
+  --neel-border: #CBD5E1;
+
+  --cream: #FAF7F2;
+  --sand: #EAE3D9;
+  --background: #FAF7F2;
+  --font-sans: var(--font-sans), 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-outfit: var(--font-outfit), 'Outfit', system-ui, sans-serif;
+  --font-serif: var(--font-serif), 'Playfair Display', Georgia, serif;
 }
 
 body {
   background-color: var(--background);
-  color: #0f172a;
-  font-family: var(--font-main);
+  color: #122147;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Institutional Grade Card */
-.academic-card {
-  background-color: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 1rem;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-  overflow: hidden;
+/* Modern Typography Helpers */
+.font-outfit {
+  font-family: var(--font-outfit), 'Outfit', system-ui, sans-serif;
 }
 
-/* Institutional Buttons */
-.btn-academic {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  background-color: #1e3a8a;
-  color: white;
-  font-weight: 600;
-  border-radius: 0.5rem;
-  transition: all 0.2s;
-  cursor: pointer;
-  border: none;
+.font-display {
+  font-family: var(--font-outfit), 'Outfit', system-ui, sans-serif;
 }
 
-.btn-academic:hover {
-  background-color: #1e40af;
+.font-cinzel {
+  font-family: var(--font-outfit), 'Outfit', system-ui, sans-serif;
 }
 
-.btn-academic:active {
-  transform: scale(0.98);
+.font-serif-elegant {
+  font-family: var(--font-serif), 'Playfair Display', Georgia, serif;
 }
 
-/* Academic Inputs */
-.form-input {
-  width: 100%;
-  padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid #cbd5e1;
-  background-color: white;
-  color: #0f172a;
-  outline: none;
-  transition: all 0.2s;
+.bg-radial-warm {
+  background: radial-gradient(1200px 600px at 15% -10%, rgba(197, 144, 72, 0.14), transparent),
+              radial-gradient(900px 500px at 85% 10%, rgba(123, 20, 54, 0.08), transparent),
+              #FAF7F2;
 }
 
-.form-input:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+.bg-radial-neel {
+  background: radial-gradient(1000px 500px at 50% 0%, #1D3268 0%, #122147 60%, #0A1329 100%);
 }
 
-/* Animations */
+.card-smvitm {
+  background-color: #FFFFFF;
+  border: 1px solid #EAE3D9;
+  border-radius: 1.5rem;
+  box-shadow: 0 4px 20px -2px rgba(18, 33, 71, 0.04), 0 2px 6px -1px rgba(18, 33, 71, 0.02);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-smvitm:hover {
+  border-color: #C59048;
+  box-shadow: 0 10px 30px -4px rgba(197, 144, 72, 0.12), 0 4px 12px -2px rgba(18, 33, 71, 0.04);
+}
+
+/* Institutional Badges */
+.badge-kumkum {
+  background-color: #FDF2F4;
+  color: #7B1436;
+  border: 1px solid #F0C4CE;
+}
+
+.badge-chandan {
+  background-color: #FAF3E8;
+  color: #A37332;
+  border: 1px solid #E8D3B5;
+}
+
+.badge-neel {
+  background-color: #F0F4FA;
+  color: #122147;
+  border: 1px solid #CBD5E1;
+}
+
+/* Buttons */
+.btn-kumkum {
+  background-color: #7B1436;
+  color: #FFFFFF;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.btn-kumkum:hover {
+  background-color: #931841;
+  box-shadow: 0 4px 14px rgba(123, 20, 54, 0.25);
+}
+
+.btn-chandan {
+  background-color: #C59048;
+  color: #FFFFFF;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.btn-chandan:hover {
+  background-color: #A37332;
+  box-shadow: 0 4px 14px rgba(197, 144, 72, 0.3);
+}
+
+.btn-neel {
+  background-color: #122147;
+  color: #FFFFFF;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.btn-neel:hover {
+  background-color: #1D3268;
+  box-shadow: 0 4px 14px rgba(18, 33, 71, 0.25);
+}
+
+/* Smooth fade in animation */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.4s ease-out forwards;
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

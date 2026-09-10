@@ -38,7 +38,7 @@ http://localhost:3000/api/auth/callback/google
 
 ### 4. **Database (Firestore)**
 ✅ **Status**: Fully Working
-- Project ID: `ignite-election`
+- Project ID: `ignite-ai-7d7de`
 - API Key Configured: ✅
 - Admin SDK Configured: ✅
 - Collections: `users`, `nominations`

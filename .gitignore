@@ -30,11 +30,25 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files & secrets (NEVER commit to git)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+*.env
+*.env.local
 
-# Firebase Admin SDK credentials
+# Firebase Admin SDK credentials & Service Accounts
 ignite-election-firebase-adminsdk-*.json
+*-firebase-adminsdk-*.json
+service-account*.json
+firebase-service-account*.json
+*.service-account.json
+*credentials*.json
+*.pem
+*.key
 
 # vercel
 .vercel

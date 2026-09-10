@@ -4,51 +4,115 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getUserProfile, UserProfile } from "@/lib/db";
-import ProfileCard from "@/components/ProfileCard";
-import NominationPanel from "@/components/NominationPanel";
-import { ShieldCheck, LogOut, Layout, BookOpen, Info, Loader2 } from "lucide-react";
+import { parseSemesterFromEmail } from "@/lib/constants";
+import VotingBooth from "@/components/VotingBooth";
+import SMVITMLogo from "@/components/SMVITMLogo";
+import { 
+  Loader2, 
+  LogOut, 
+  Fingerprint, 
+  Mail, 
+  CheckCircle2, 
+  Sparkles, 
+  ShieldCheck,
+  Download
+} from "lucide-react";
 
 export default function Dashboard() {
-  const { user, loading: authLoading, isAdmin, logout } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const router = useRouter();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
 
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/");
     } else if (user?.email) {
-      if (isAdmin) {
-        // Admins skip profile verification and go to their console
-        console.log("User is admin, redirecting to admin panel");
-        router.push("/admin");
-      } else {
-        console.log("Fetching user profile...");
-        getUserProfile(user.email).then((data) => {
+      getUserProfile(user.email)
+        .then((data) => {
           if (!data) {
-            console.log("No profile found, redirecting to profile-setup");
-            router.push("/profile-setup");
-          } else {
-            console.log("Profile loaded successfully");
-            setProfile(data);
-            setLoading(false);
+            const sem = parseSemesterFromEmail(user.email) || '6th';
+            const nameParts = (user.name || '').trim().split(' ');
+            const firstName = nameParts[0] || 'Student';
+            const lastName = nameParts.slice(1).join(' ') || 'Voter';
+
+            const autoProfile: UserProfile = {
+              uid: user.email,
+              email: user.email,
+              firstName,
+              lastName,
+              usn: user.email.split('@')[0].toUpperCase(),
+              branch: 'Engineering',
+              semester: sem,
+              photoURL: '',
+              hasBacklogs: false,
+              nominations: [],
+              createdAt: new Date(),
+            };
+
+            fetch('/api/profile/save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(autoProfile),
+            })
+              .then(() => setProfile(autoProfile))
+              .catch(() => setProfile(autoProfile))
+              .finally(() => setLoading(false));
+
+            return;
           }
-        }).catch(err => {
-          console.error("Dashboard profile fetch error:", err);
-          // Still redirect on error - user can try to setup profile again
-          router.push("/profile-setup");
+          setProfile(data);
+          setLoading(false);
+        })
+        .catch(() => {
+          const sem = parseSemesterFromEmail(user.email) || '6th';
+          const nameParts = (user.name || '').trim().split(' ');
+          const autoProfile: UserProfile = {
+            uid: user.email,
+            email: user.email,
+            firstName: nameParts[0] || 'Student',
+            lastName: nameParts.slice(1).join(' ') || 'Voter',
+            usn: user.email.split('@')[0].toUpperCase(),
+            branch: 'Engineering',
+            semester: sem,
+            photoURL: '',
+            hasBacklogs: false,
+            nominations: [],
+            createdAt: new Date(),
+          };
+          setProfile(autoProfile);
+          setLoading(false);
         });
-      }
     }
-  }, [user, authLoading, router, isAdmin]);
+  }, [user, authLoading, router]);
 
   if (authLoading || loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-white">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-10 h-10 animate-spin text-blue-900" />
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-            Fetching Official Records...
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#FAF7F2] text-[#122147]">
+        <div className="flex flex-col items-center gap-4 animate-fade-in">
+          <SMVITMLogo size="lg" showText={false} className="animate-bounce" />
+          <Loader2 className="w-8 h-8 animate-spin text-[#7B1436]" />
+          <p className="text-xs font-bold text-[#122147]/70 uppercase tracking-widest">
+            Loading Election Portal...
           </p>
         </div>
       </div>
@@ -57,84 +121,141 @@ export default function Dashboard() {
 
   if (!profile) return null;
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      {/* Official Header */}
-      <header className="bg-[#1e3a8a] text-white shadow-lg relative z-50">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <BookOpen className="w-8 h-8 text-blue-200" />
-            <h1 className="text-xl font-bold tracking-tight">Ignite Election Portal</h1>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            {isAdmin && (
-              <button
-                onClick={() => router.push("/admin")}
-                className="hidden md:flex items-center gap-2 px-6 py-2 bg-white/10 text-white rounded-lg text-xs font-bold hover:bg-white/20 transition-all border border-white/20"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                ADMIN PANEL
-              </button>
-            )}
-            <button 
-              onClick={logout}
-              className="px-4 py-2 bg-red-600/10 hover:bg-red-600/20 text-red-200 rounded-lg text-xs font-bold transition-all border border-red-500/20 flex items-center gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              LOGOUT
-            </button>
-          </div>
-        </div>
-      </header>
+  const fullName = `${profile.firstName} ${profile.lastName}`.trim() || user?.name || 'Student Voter';
 
-      <main className="max-w-7xl mx-auto px-6 py-12">
-        <div className="flex flex-col lg:flex-row gap-12 items-start">
-          {/* Left: Official ID Card */}
-          <aside className="w-full lg:w-[350px] shrink-0">
-             <ProfileCard user={profile} />
-          </aside>
-          
-          {/* Right: Nomination Space */}
-          <section className="flex-grow space-y-8">
-            <div className="bg-white rounded-2xl shadow-academic border border-slate-200 overflow-hidden">
-              <div className="bg-slate-50 border-b border-slate-200 px-8 py-6 flex items-center gap-4">
-                <div className="w-10 h-10 bg-[#1e3a8a]/10 rounded-lg flex items-center justify-center text-[#1e3a8a]">
-                  <Layout className="w-5 h-5 font-bold" />
+  return (
+    <div className="min-h-screen bg-[#FAF7F2] text-[#122147] font-sans flex flex-col justify-between selection:bg-[#C59048]/20 selection:text-[#7B1436]">
+      <div>
+        {/* ============================================================ */}
+        {/* 1. CLEAN AASARE-STYLE WARM IVORY/WHITE NAVBAR (NO BLUE!)     */}
+        {/* ============================================================ */}
+        <header className="bg-[#FAF7F2]/95 backdrop-blur-md border-b border-[#EAE3D9]/80 sticky top-0 z-50 shadow-xs">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-18 sm:h-20 flex items-center justify-between">
+            <div className="flex items-center gap-3.5">
+              <SMVITMLogo size="sm" showText={true} lightText={false} />
+            </div>
+            <div className="flex items-center gap-3">
+              {!isInstalled && (
+                <button
+                  onClick={() => {
+                    if (installPrompt) {
+                      installPrompt.prompt();
+                      installPrompt.userChoice.then((choiceResult: any) => {
+                        if (choiceResult.outcome === 'accepted') setIsInstalled(true);
+                        setInstallPrompt(null);
+                      });
+                    } else {
+                      alert('To install on Desktop:\n\n1. Look for the "Install App" icon (computer monitor with download arrow) on the right side of the address bar.\n2. Or click the 3 dots (⋮) menu in Chrome -> "Save and share" -> "Install SMVITM Student Council Elections".');
+                    }
+                  }}
+                  className="px-3.5 sm:px-4 py-2 rounded-full bg-[#FAF3E8] hover:bg-[#F5EAD7] text-[#7B1436] border border-[#E8D3B5] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+                  title="Download and install app on desktop"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#C59048]" />
+                  <span className="hidden sm:inline">Install App</span>
+                </button>
+              )}
+
+              <button 
+                onClick={logout}
+                className="px-4 py-2 rounded-full bg-[#7B1436]/10 hover:bg-[#7B1436] text-[#7B1436] hover:text-white border border-[#7B1436]/25 transition-all text-xs font-semibold flex items-center gap-2 cursor-pointer shadow-2xs active:scale-95"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout</span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* ============================================================ */}
+        {/* 2. FLOATING MODERN VOTER PROFILE CARD                        */}
+        {/* ============================================================ */}
+        <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8">
+          <div className="bg-white border border-[#EAE3D9] rounded-3xl p-6 sm:p-7 shadow-sm transition-all hover:shadow-md">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+              
+              {/* Left: Student Identity */}
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-[#FAF3E8] text-[#7B1436] border border-[#E8D3B5] flex items-center justify-center font-outfit font-bold text-2xl shrink-0 shadow-2xs">
+                  {fullName.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900 leading-tight">Election Nomination Console</h2>
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">Status: Open for Semester {profile.semester}</p>
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <h2 className="text-lg sm:text-xl font-outfit font-bold text-[#122147] tracking-tight">
+                      {fullName}
+                    </h2>
+                    <span className="px-3 py-0.5 bg-[#FAF3E8] text-[#A37332] text-xs font-semibold rounded-full border border-[#E8D3B5]">
+                      {profile.semester && (profile.semester.includes('th') || profile.semester.includes('Sem')) 
+                        ? (profile.semester.includes('Semester') ? profile.semester : `${profile.semester} Semester`)
+                        : profile.semester || 'Eligible Elector'}
+                    </span>
+                    <span className="px-3 py-0.5 bg-stone-100 text-stone-700 text-xs font-medium rounded-full border border-stone-200">
+                      {profile.branch || 'Engineering'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-stone-500 font-normal">
+                    <span className="flex items-center gap-1.5">
+                      <Fingerprint className="w-3.5 h-3.5 text-[#C59048]" />
+                      USN: <strong className="text-[#122147] font-mono font-semibold">{profile.usn}</strong>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-[#C59048]" />
+                      <span>{profile.email}</span>
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <div className="p-8">
-                <NominationPanel 
-                  semester={profile.semester} 
-                  email={profile.email} 
-                  initialNominations={profile.nominations} 
-                  disabled={profile.hasBacklogs}
-                />
+              {/* Right: Verified Voter Eligibility Badge */}
+              <div className="flex items-center gap-3 self-start md:self-auto bg-emerald-50 text-emerald-900 px-4 py-3 rounded-2xl border border-emerald-200/80 shrink-0 shadow-2xs">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-bold text-emerald-950 leading-tight">
+                    Verified Voter
+                  </p>
+                  <p className="text-[11px] text-emerald-700 font-normal mt-0.5">
+                    Eligible to vote in student elections
+                  </p>
+                </div>
               </div>
-            </div>
 
-            {/* Information Notice */}
-            <div className="p-6 bg-blue-50 rounded-xl border border-blue-100 flex items-start gap-4">
-              <Info className="w-6 h-6 text-blue-600 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="text-sm font-bold text-blue-900">Official Instructions</h4>
-                <p className="text-xs text-blue-800 leading-relaxed mt-1 font-medium italic">
-                  Select your desired council post from the list above and click the "OFFICIALLY SUBMIT" button to record your choice. You can only apply for one position. You may withdraw and re-apply anytime before the deadline.
-                </p>
-              </div>
             </div>
-          </section>
-        </div>
-      </main>
+          </div>
+        </section>
 
-      <footer className="bg-white border-t border-slate-200 mt-24 py-12">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.4em]">Integrated Digital Election System • SODE-EDU TECHNOLOGY HUB</p>
+        {/* ============================================================ */}
+        {/* 3. VOTING BOOTH SECTION                                      */}
+        {/* ============================================================ */}
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 pb-28">
+          <VotingBooth 
+            semester={profile.semester} 
+            email={profile.email} 
+            onVoteSuccess={logout}
+          />
+        </main>
+      </div>
+
+      {/* ============================================================ */}
+      {/* 4. CLEAN WARM INSTITUTIONAL FOOTER                           */}
+      {/* ============================================================ */}
+      <footer className="w-full bg-[#FAF7F2] border-t border-[#EAE3D9] py-8 text-center text-xs text-stone-600">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-center justify-between gap-4">
+          <SMVITMLogo size="sm" showText={true} lightText={false} />
+
+          <div className="text-center md:text-right space-y-0.5">
+            <p className="font-semibold text-[#122147] whitespace-nowrap">
+              Shri Madhwa Vadiraja Institute of Technology &amp; Management
+            </p>
+            <p className="text-[11px] text-stone-500">
+              Vishwothama Nagar, Bantakal – 574115, Udupi Dist., Karnataka • Affiliated to VTU Belagavi
+            </p>
+            <p className="text-[10px] text-[#A37332] font-serif italic">
+              सर्वे भद्राणि पश्यन्तु — May all see auspiciousness
+            </p>
+          </div>
         </div>
       </footer>
     </div>

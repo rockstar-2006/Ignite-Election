@@ -1,37 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebase-admin';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { getCandidates } from '@/lib/server/voting';
 
 export async function GET(request: NextRequest) {
   try {
-    // Get session to verify user is authenticated
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const { searchParams } = new URL(request.url);
+    const semester = searchParams.get('semester') || undefined;
 
-    // Fetch all candidates (users with nominations) using Firebase Admin SDK
-    const snapshot = await adminDb.collection('users')
-      .where('nominations', '!=', [])
-      .get();
+    const candidates = await getCandidates(semester);
 
-    const candidates: any[] = [];
-    snapshot.forEach((doc) => {
-      candidates.push({
-        id: doc.id,
-        ...doc.data()
-      });
-    });
-
-    return NextResponse.json({ candidates });
-  } catch (error) {
+    return NextResponse.json(
+      { 
+        success: true, 
+        candidates 
+      },
+      {
+        headers: {
+          'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=15',
+        },
+      }
+    );
+  } catch (error: any) {
     console.error('Error fetching candidates:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch candidates' },
+      { error: error.message || 'Failed to fetch candidates', candidates: [] },
       { status: 500 }
     );
   }

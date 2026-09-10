@@ -6,7 +6,16 @@ export function proxy(request: NextRequest) {
                        request.cookies.get('__Secure-next-auth.session-token')?.value;
   const { pathname } = request.nextUrl;
 
-  const isPublicRoute = pathname === '/' || pathname === '/auth/signin' || pathname.startsWith('/api/auth');
+  // Routes that do NOT require student NextAuth authentication
+  const isPublicRoute = 
+    pathname === '/' || 
+    pathname === '/auth/signin' || 
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/api/admin') ||
+    pathname.startsWith('/api/votes/results') ||
+    pathname.startsWith('/api/candidates') ||
+    pathname.startsWith('/api/logo') ||
+    pathname.startsWith('/api/auth');
 
   if (!isPublicRoute && !sessionToken) {
     const url = request.nextUrl.clone();
@@ -14,7 +23,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // If the user is authenticated and tries to access sign-in page, redirect to dashboard
+  // If the user is authenticated with Google and tries to access student sign-in page, redirect to dashboard
   if (pathname === '/auth/signin' && sessionToken) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
