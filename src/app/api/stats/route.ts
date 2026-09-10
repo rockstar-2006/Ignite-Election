@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
           short_name: 'SMVITM Voting',
           description: 'Official Student Council E-Voting Platform of Shri Madhwa Vadiraja Institute of Technology & Management',
           id: '/auth/signin',
-          start_url: '/auth/signin?direct=true',
+          start_url: '/auth/signin',
           scope: '/',
           display: 'standalone',
           orientation: 'portrait-primary',

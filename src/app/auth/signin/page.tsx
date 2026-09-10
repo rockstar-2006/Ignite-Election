@@ -46,14 +46,21 @@ function SignInContent() {
       setInstallPrompt(e);
     };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setInstallPrompt(null);
+    };
 
-    if (window.matchMedia('(display-mode: standalone)').matches) {
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
       setIsInstalled(true);
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
@@ -107,16 +114,13 @@ function SignInContent() {
   };
 
   const handleInstallClick = async () => {
-    if (installPrompt) {
-      installPrompt.prompt();
-      const choiceResult = await installPrompt.userChoice;
-      if (choiceResult.outcome === 'accepted') {
-        setIsInstalled(true);
-      }
-      setInstallPrompt(null);
-    } else {
-      alert('To install on Desktop:\n\n1. In Chrome or Edge, look for the "Install App" icon (computer monitor with download arrow) on the right side of the address bar at the top.\n2. Or click the 3 dots (⋮) menu in Chrome -> "Save and share" -> "Install SMVITM Student Council Elections".');
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const choiceResult = await installPrompt.userChoice;
+    if (choiceResult.outcome === 'accepted') {
+      setIsInstalled(true);
     }
+    setInstallPrompt(null);
   };
 
   return (
@@ -149,12 +153,12 @@ function SignInContent() {
               <a href="https://sode-edu.in/smvitm/" target="_blank" rel="noopener noreferrer" className="hover:text-[#7B1436] transition">About SMVITM</a>
             </nav>
 
-            {/* PWA Desktop Download / Install Button */}
-            {!isInstalled && (
+            {/* PWA Install Button — proper PWA prompt (no alert fallback) */}
+            {!isInstalled && installPrompt && (
               <button
                 onClick={handleInstallClick}
                 className="px-3.5 sm:px-4 py-2 rounded-full bg-[#FAF3E8] hover:bg-[#F5EAD7] text-[#7B1436] border border-[#E8D3B5] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-                title="Download and install app on desktop"
+                title="Install app on this device"
               >
                 <Download className="w-3.5 h-3.5 text-[#C59048]" />
                 <span className="hidden xs:inline sm:inline">Install App</span>

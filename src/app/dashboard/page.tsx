@@ -32,14 +32,21 @@ export default function Dashboard() {
       setInstallPrompt(e);
     };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setInstallPrompt(null);
+    };
 
-    if (window.matchMedia('(display-mode: standalone)').matches) {
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
       setIsInstalled(true);
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
@@ -135,21 +142,17 @@ export default function Dashboard() {
               <SMVITMLogo size="sm" showText={true} lightText={false} />
             </div>
             <div className="flex items-center gap-3">
-              {!isInstalled && (
+              {!isInstalled && installPrompt && (
                 <button
                   onClick={() => {
-                    if (installPrompt) {
-                      installPrompt.prompt();
-                      installPrompt.userChoice.then((choiceResult: any) => {
-                        if (choiceResult.outcome === 'accepted') setIsInstalled(true);
-                        setInstallPrompt(null);
-                      });
-                    } else {
-                      alert('To install on Desktop:\n\n1. Look for the "Install App" icon (computer monitor with download arrow) on the right side of the address bar.\n2. Or click the 3 dots (⋮) menu in Chrome -> "Save and share" -> "Install SMVITM Student Council Elections".');
-                    }
+                    installPrompt.prompt();
+                    installPrompt.userChoice.then((choiceResult: any) => {
+                      if (choiceResult.outcome === 'accepted') setIsInstalled(true);
+                      setInstallPrompt(null);
+                    });
                   }}
                   className="px-3.5 sm:px-4 py-2 rounded-full bg-[#FAF3E8] hover:bg-[#F5EAD7] text-[#7B1436] border border-[#E8D3B5] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-                  title="Download and install app on desktop"
+                  title="Install app on this device"
                 >
                   <Download className="w-3.5 h-3.5 text-[#C59048]" />
                   <span className="hidden sm:inline">Install App</span>

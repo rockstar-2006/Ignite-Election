@@ -15,7 +15,9 @@ export function proxy(request: NextRequest) {
     pathname.startsWith('/api/votes/results') ||
     pathname.startsWith('/api/candidates') ||
     pathname.startsWith('/api/logo') ||
-    pathname.startsWith('/api/auth');
+    pathname.startsWith('/api/auth') ||
+    pathname === '/manifest.json' ||
+    pathname === '/sw.js';
 
   if (!isPublicRoute && !sessionToken) {
     const url = request.nextUrl.clone();

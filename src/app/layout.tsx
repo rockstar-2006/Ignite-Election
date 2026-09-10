@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Outfit, Plus_Jakarta_Sans, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
+import { RegisterSW } from "@/components/RegisterSW";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -28,8 +29,7 @@ const playfairDisplay = Playfair_Display({
 export const metadata: Metadata = {
   title: "SMVITM Student Council Election Portal",
   description: "Official E-Voting Platform of Shri Madhwa Vadiraja Institute of Technology & Management, Bantakal, Udupi",
-  manifest: "/api/stats?manifest=true",
-  themeColor: "#7B1436",
+  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -39,6 +39,10 @@ export const metadata: Metadata = {
     icon: "/api/logo",
     apple: "/api/logo",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#7B1436",
 };
 
 export default function RootLayout({
@@ -52,6 +56,7 @@ export default function RootLayout({
         <div className="relative z-10 flex-grow flex flex-col">
           <Providers>{children}</Providers>
         </div>
+        <RegisterSW />
       </body>
     </html>
   );
