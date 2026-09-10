@@ -6,10 +6,12 @@ export interface UserProfile {
   lastName: string;
   email: string;
   usn: string;
-  phone: string;
+  phone?: string;
+  branch?: string;
+  department?: string;
   semester: string;
   photoURL: string;
-  hasBacklogs: boolean;
+  hasBacklogs?: boolean;
   nominations: string[];
   createdAt: any;
 }

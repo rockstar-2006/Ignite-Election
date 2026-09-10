@@ -27,7 +27,7 @@ interface VotingBoothProps {
   onVoteSuccess?: () => void;
 }
 
-export default function VotingBooth({ semester, email }: VotingBoothProps) {
+export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBoothProps) {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [electionStatus, setElectionStatus] = useState<{ isPublished: boolean; votingOpen: boolean } | null>(null);
   const [loading, setLoading] = useState(true);

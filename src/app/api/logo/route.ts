@@ -26,7 +26,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Logo not found' }, { status: 404 });
     }
 
-    return new NextResponse(imageBuffer, {
+    return new NextResponse(new Uint8Array(imageBuffer), {
       headers: {
         'Content-Type': 'image/png',
         'Cache-Control': 'public, max-age=31536000, immutable',
