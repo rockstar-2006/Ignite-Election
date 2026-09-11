@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { PostResult, Candidate } from '@/lib/server/voting';
 import { OFFICIAL_COUNCIL_POSTS } from '@/lib/constants';
-import { downloadWinnersDocument } from '@/lib/export-report';
+import { downloadWinnersDocument, printWinnersReport } from '@/lib/export-report';
 import SMVITMLogo from '@/components/SMVITMLogo';
 import { 
   ShieldCheck, 
@@ -26,6 +26,7 @@ import {
   UserCheck, 
   Trash2, 
   Download,
+  Printer,
   Share2,
   Copy,
   PlusCircle,
@@ -712,6 +713,10 @@ export default function AdminPage() {
     setHasDownloadedDoc(true);
   };
 
+  const handlePrintWinnersReport = () => {
+    printWinnersReport(postResults, totalVotes, totalVoters);
+  };
+
   const handleResetVotes = async () => {
     setResettingVotes(true);
     try {
@@ -1030,9 +1035,19 @@ export default function AdminPage() {
             <button
               onClick={handleDownloadWinnersReport}
               className="px-4 py-2.5 bg-[#FAF3E8] hover:bg-[#FAF3E8]/80 text-[#A37332] rounded-xl text-xs font-outfit font-bold uppercase tracking-wider transition-all border border-[#E8D3B5] shadow-xs flex items-center gap-1.5 cursor-pointer"
+              title="Download official results document for Microsoft Word or Google Docs"
             >
               <Download className="w-3.5 h-3.5 text-[#C59048]" />
-              Download Winners (.doc)
+              Download (.doc)
+            </button>
+
+            <button
+              onClick={handlePrintWinnersReport}
+              className="px-4 py-2.5 bg-[#122147] hover:bg-[#1b2f61] text-white rounded-xl text-xs font-outfit font-bold uppercase tracking-wider transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+              title="Print official certificate or Save directly as PDF"
+            >
+              <Printer className="w-3.5 h-3.5 text-[#C59048]" />
+              Print / Save PDF
             </button>
 
             {/* Reset Votes Button */}
