@@ -1,8 +1,8 @@
 // SMVITM Voting PWA Service Worker
-const CACHE_NAME = 'smvitm-voting-v1';
+const CACHE_NAME = 'smvitm-voting-v2';
 const OFFLINE_URL = '/auth/signin';
 
-// Install: cache offline fallback
+// Install: cache offline fallback and take over immediately
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
@@ -10,7 +10,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate: clean old caches
+// Activate: wipe out any outdated caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -19,7 +19,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch: network-first for navigations, cache-first for static assets
+// Fetch: Always Network-First to guarantee real-time updates and prevent stale chunk errors
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
@@ -28,39 +28,34 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Bypass for API / auth / _next — always network
+  // Always bypass for API, Next internals, Turbopack, and dev sockets
   if (
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/_next/') ||
+    url.pathname.startsWith('/__turbopack') ||
     url.pathname === '/sw.js' ||
     url.pathname === '/manifest.json'
   ) {
     return;
   }
 
-  // For navigation requests, network-first with offline fallback
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => response)
-        .catch(() => caches.match(OFFLINE_URL).then((cached) => cached || fetch(request)))
-    );
-    return;
-  }
-
-  // For other GETs (images, css, js): stale-while-revalidate
+  // Network-first strategy for everything else
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const networkFetch = fetch(request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || networkFetch;
-    })
+    fetch(request)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        }
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+        if (request.mode === 'navigate') {
+          return caches.match(OFFLINE_URL);
+        }
+        return new Response('Network error', { status: 503 });
+      })
   );
 });

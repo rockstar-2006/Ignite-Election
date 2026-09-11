@@ -3,6 +3,7 @@ import { Outfit, Plus_Jakarta_Sans, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { RegisterSW } from "@/components/RegisterSW";
+import { AutoFullscreen } from "@/components/AutoFullscreen";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -57,6 +58,7 @@ export default function RootLayout({
           <Providers>{children}</Providers>
         </div>
         <RegisterSW />
+        <AutoFullscreen />
       </body>
     </html>
   );

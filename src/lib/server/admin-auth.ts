@@ -218,7 +218,16 @@ export async function updateAdminPassword(
       email: cleanEmail,
       password: newPassword,
       updatedAt: now.toISOString(),
-      updatedAtFormatted: now.toLocaleString('en-IN'),
+      updatedAtFormatted: now.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+      }),
     },
     { merge: true }
   );
@@ -263,7 +272,16 @@ export async function updateAdminCredentials(
       email: finalEmail,
       password: finalPassword,
       updatedAt: now.toISOString(),
-      updatedAtFormatted: now.toLocaleString('en-IN'),
+      updatedAtFormatted: now.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+      }),
     },
     { merge: true }
   );

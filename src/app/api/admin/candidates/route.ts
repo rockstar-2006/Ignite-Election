@@ -2,13 +2,33 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCandidates, createCandidate, updateCandidate, deleteCandidate } from '@/lib/server/voting';
 import { getActiveAdminSession } from '@/lib/server/admin-auth';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(request: NextRequest) {
   try {
     const candidates = await getCandidates();
-    return NextResponse.json({ success: true, candidates });
+    return NextResponse.json(
+      { success: true, candidates },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      }
+    );
   } catch (error: any) {
     console.error('Error fetching candidates:', error);
-    return NextResponse.json({ error: error.message || 'Failed to fetch candidates' }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || 'Failed to fetch candidates' },
+      { 
+        status: 500,
+        headers: {
+          'Cache-Control': 'no-store',
+        }
+      }
+    );
   }
 }
 

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { clearAllVotes } from '@/lib/server/voting';
 import { getActiveAdminSession } from '@/lib/server/admin-auth';
+import { adminDb } from '@/lib/firebase-admin';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,6 +16,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let email: string | undefined;
+    try {
+      const body = await request.json();
+      email = body?.email;
+    } catch {}
+
+    const { searchParams } = new URL(request.url);
+    if (!email) {
+      email = searchParams.get('email') || undefined;
+    }
+
+    // If specific email provided, reset that single voter's status
+    if (email) {
+      const cleanEmail = email.toLowerCase().trim();
+      await adminDb.collection('voter_records').doc(cleanEmail).delete();
+      try {
+        await adminDb.collection('voters').doc(cleanEmail).delete();
+      } catch {}
+      return NextResponse.json({
+        success: true,
+        message: `Voter record for ${cleanEmail} permanently deleted. Student can vote again immediately.`,
+      });
+    }
+
+    // Otherwise clear all votes and running tallies
     const result = await clearAllVotes();
     return NextResponse.json({
       success: true,
@@ -25,4 +54,8 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: NextRequest) {
+  return POST(request);
 }

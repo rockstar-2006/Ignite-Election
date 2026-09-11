@@ -12,6 +12,8 @@ export function proxy(request: NextRequest) {
   const isPublicRoute =
     pathname === '/' ||
     pathname === '/auth/signin' ||
+    pathname === '/install' ||
+    pathname === '/download' ||
     pathname.startsWith('/admin') ||
     pathname.startsWith('/api/admin') ||
     pathname.startsWith('/api/votes/results') ||

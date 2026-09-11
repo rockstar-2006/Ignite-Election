@@ -142,15 +142,31 @@ export async function getElectionStatus(): Promise<ElectionStatus> {
 export async function setElectionStatus(isPublished: boolean, votingOpen: boolean): Promise<ElectionStatus> {
   try {
     const now = new Date().toISOString();
-    const statusData: ElectionStatus = {
-      isPublished,
-      votingOpen,
+    const docRef = adminDb.collection('election_settings').doc('general');
+    const existingSnap = await docRef.get();
+    const existingData = existingSnap.exists ? existingSnap.data() : {};
+
+    const statusData: Record<string, any> = {
+      isPublished: Boolean(isPublished),
+      votingOpen: Boolean(votingOpen),
       updatedAt: now,
-      publishedAt: isPublished ? now : undefined,
     };
-    await adminDb.collection('election_settings').doc('general').set(statusData, { merge: true });
+
+    if (isPublished) {
+      statusData.publishedAt = existingData?.publishedAt || now;
+    } else if (existingData?.publishedAt) {
+      statusData.publishedAt = existingData.publishedAt;
+    }
+
+    await docRef.set(statusData, { merge: true });
     invalidateElectionStatusCache();
-    return statusData;
+
+    return {
+      isPublished: Boolean(isPublished),
+      votingOpen: Boolean(votingOpen),
+      updatedAt: now,
+      publishedAt: statusData.publishedAt,
+    };
   } catch (error) {
     console.error('Error setting election status:', error);
     throw error;
@@ -159,20 +175,21 @@ export async function setElectionStatus(isPublished: boolean, votingOpen: boolea
 
 /**
  * Retrieve authentic candidates from Firestore with in-memory caching.
- * Excludes legacy dummy candidates without executing hazardous side-effect deletes during read requests.
+ * Excludes rogue/mock posts not in OFFICIAL_COUNCIL_POSTS.
  */
 export async function getCandidates(semester?: string): Promise<Candidate[]> {
   const now = Date.now();
   if (candidateCache && candidateCache.expiresAt > now) {
     const cached = candidateCache.data;
-    if (semester) {
-      return cached.filter((c) => c.semester === semester || !c.semester);
+    if (semester && semester !== 'all' && semester !== 'All' && semester !== 'College-Wide') {
+      return cached.filter((c) => c.semester === semester || c.semester === 'College-Wide' || !c.semester);
     }
     return cached;
   }
 
   try {
     const candidateMap = new Map<string, Candidate>();
+    const officialPostIds = new Set<string>(OFFICIAL_COUNCIL_POSTS.map((p) => p.id));
 
     // 1. Fetch from 'candidates' collection
     const candidatesCollection = adminDb.collection('candidates');
@@ -184,14 +201,23 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
         return;
       }
       const data = doc.data();
+      const postId = (data.postId || '').trim().toLowerCase();
+
+      // Filter out any mock/rogue posts that are not in OFFICIAL_COUNCIL_POSTS
+      if (!officialPostIds.has(postId)) {
+        return;
+      }
+
+      const officialPost = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === postId);
+
       candidateMap.set(doc.id, {
         id: doc.id,
         name: data.name || 'Candidate',
         usn: data.usn || '',
         semester: data.semester || '6th',
         year: data.year || '3rd Year',
-        postId: data.postId || '',
-        postName: data.postName || data.postId || 'Position',
+        postId: postId,
+        postName: officialPost?.name || data.postName || postId,
         department: data.department || data.branch || '',
         gender: data.gender === 'Female' ? 'Female' : 'Male',
         photoURL: data.photoURL || '',
@@ -200,7 +226,7 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
       });
     });
 
-    // 2. Fetch from 'users' collection with nominations
+    // 2. Fetch from 'users' collection with nominations (if student applied via portal)
     try {
       const usersSnapshot = await adminDb.collection('users').where('nominations', '!=', []).get();
       usersSnapshot.forEach((doc) => {
@@ -208,10 +234,13 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
         const userNominations = Array.isArray(userData.nominations) ? userData.nominations : [];
         
         userNominations.forEach((postId: string) => {
-          const candidateUniqueId = `${doc.id}_${postId}`;
+          const cleanPostId = (postId || '').trim().toLowerCase();
+          if (!officialPostIds.has(cleanPostId)) return;
+
+          const candidateUniqueId = `${doc.id}_${cleanPostId}`;
           if (!candidateMap.has(candidateUniqueId) && !candidateMap.has(doc.id)) {
-            const officialPost = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === postId);
-            const postName = officialPost?.name || postId;
+            const officialPost = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === cleanPostId);
+            const postName = officialPost?.name || cleanPostId;
             const candSemester = userData.semester || '6th';
             const gender: 'Male' | 'Female' = userData.gender === 'Female' ? 'Female' : 'Male';
 
@@ -221,7 +250,7 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
               usn: userData.usn || '',
               semester: candSemester,
               year: userData.year || '3rd Year',
-              postId: postId,
+              postId: cleanPostId,
               postName: postName,
               department: userData.department || userData.branch || '',
               gender: gender,
@@ -242,8 +271,8 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
       expiresAt: now + CANDIDATE_CACHE_TTL_MS,
     };
 
-    if (semester) {
-      return allCandidates.filter((c) => c.semester === semester || !c.semester);
+    if (semester && semester !== 'all' && semester !== 'All' && semester !== 'College-Wide') {
+      return allCandidates.filter((c) => c.semester === semester || c.semester === 'College-Wide' || !c.semester);
     }
 
     return allCandidates;
@@ -302,8 +331,50 @@ export async function createCandidate(data: {
  */
 export async function updateCandidate(id: string, updates: Partial<Candidate>): Promise<void> {
   try {
-    const docRef = adminDb.collection('candidates').doc(id);
-    await docRef.update(updates);
+    const cleanUpdates: Record<string, any> = {};
+    Object.entries(updates).forEach(([k, v]) => {
+      if (v !== undefined) cleanUpdates[k] = v;
+    });
+
+    if (cleanUpdates.postId) {
+      const postObj = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === cleanUpdates.postId);
+      cleanUpdates.postName = cleanUpdates.postName || postObj?.name || cleanUpdates.postId;
+    }
+
+    const candRef = adminDb.collection('candidates').doc(id);
+    const candDoc = await candRef.get();
+    if (candDoc.exists) {
+      await candRef.update(cleanUpdates);
+      invalidateCandidateCache();
+      return;
+    }
+
+    // If ID is from users nomination `email_postId`
+    if (id.includes('_')) {
+      const parts = id.split('_');
+      const email = parts[0];
+      const userRef = adminDb.collection('users').doc(email);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        const uUpdates: Record<string, any> = {};
+        if (updates.name) uUpdates.name = updates.name;
+        if (updates.usn) uUpdates.usn = updates.usn;
+        if (updates.year) uUpdates.year = updates.year;
+        if (updates.semester) uUpdates.semester = updates.semester;
+        if (updates.department) uUpdates.department = updates.department;
+        if (updates.gender) uUpdates.gender = updates.gender;
+        if (updates.photoURL !== undefined) uUpdates.photoURL = updates.photoURL;
+        if (updates.manifesto !== undefined) uUpdates.manifesto = updates.manifesto;
+        if (Object.keys(uUpdates).length > 0) {
+          await userRef.update(uUpdates);
+        }
+        invalidateCandidateCache();
+        return;
+      }
+    }
+
+    // Fallback: set doc with merge if not found
+    await candRef.set(cleanUpdates, { merge: true });
     invalidateCandidateCache();
   } catch (error) {
     console.error('Error updating candidate:', error);
@@ -312,12 +383,34 @@ export async function updateCandidate(id: string, updates: Partial<Candidate>): 
 }
 
 /**
- * Admin: Delete candidate from Firestore
+ * Admin: Delete candidate record
  */
 export async function deleteCandidate(id: string): Promise<void> {
   try {
-    await adminDb.collection('candidates').doc(id).delete();
-    invalidateCandidateCache();
+    const candRef = adminDb.collection('candidates').doc(id);
+    const candDoc = await candRef.get();
+    if (candDoc.exists) {
+      await candRef.delete();
+      invalidateCandidateCache();
+      return;
+    }
+
+    // If ID is from users nomination `email_postId`
+    if (id.includes('_')) {
+      const parts = id.split('_');
+      const email = parts[0];
+      const postId = parts.slice(1).join('_');
+      const userRef = adminDb.collection('users').doc(email);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        const uData = userDoc.data();
+        const currentNoms: string[] = Array.isArray(uData?.nominations) ? uData.nominations : [];
+        const updated = currentNoms.filter((p) => p !== postId);
+        await userRef.update({ nominations: updated });
+        invalidateCandidateCache();
+        return;
+      }
+    }
   } catch (error) {
     console.error('Error deleting candidate:', error);
     throw error;
@@ -325,7 +418,7 @@ export async function deleteCandidate(id: string): Promise<void> {
 }
 
 /**
- * Clear all votes, voter records, and running tallies from Firestore safely using 450-op chunks
+ * Clear all votes and voter records from Firestore safely using 400-op chunks
  * Prevents Firestore's fatal 500-operation batch commit crash!
  */
 export async function clearAllVotes(): Promise<{ deletedVotes: number; deletedVoters: number }> {
@@ -334,19 +427,30 @@ export async function clearAllVotes(): Promise<{ deletedVotes: number; deletedVo
     const votersSnap = await adminDb.collection('voter_records').get();
     const talliesSnap = await adminDb.collection('election_tallies').get();
 
-    const allRefs: admin.firestore.DocumentReference[] = [];
-    votesSnap.forEach((doc) => allRefs.push(doc.ref));
-    votersSnap.forEach((doc) => allRefs.push(doc.ref));
-    talliesSnap.forEach((doc) => allRefs.push(doc.ref));
+    const refsToDelete = new Map<string, FirebaseFirestore.DocumentReference>();
+    
+    votesSnap.docs.forEach((d) => refsToDelete.set(`votes/${d.id}`, d.ref));
+    votersSnap.docs.forEach((d) => refsToDelete.set(`voter_records/${d.id}`, d.ref));
+    talliesSnap.docs.forEach((d) => refsToDelete.set(`election_tallies/${d.id}`, d.ref));
 
-    if (allRefs.length === 0) {
-      return { deletedVotes: 0, deletedVoters: 0 };
-    }
+    try {
+      const listedVotes = await adminDb.collection('votes').listDocuments();
+      listedVotes.forEach((r) => refsToDelete.set(`votes/${r.id}`, r));
+    } catch {}
 
-    // Chunk into safe batches of max 450 operations
-    const CHUNK_SIZE = 450;
-    for (let i = 0; i < allRefs.length; i += CHUNK_SIZE) {
-      const chunk = allRefs.slice(i, i + CHUNK_SIZE);
+    try {
+      const listedVoters = await adminDb.collection('voter_records').listDocuments();
+      listedVoters.forEach((r) => refsToDelete.set(`voter_records/${r.id}`, r));
+    } catch {}
+
+    try {
+      const legacyVoters = await adminDb.collection('voters').listDocuments();
+      legacyVoters.forEach((r) => refsToDelete.set(`voters/${r.id}`, r));
+    } catch {}
+
+    const allRefs = Array.from(refsToDelete.values());
+    for (let i = 0; i < allRefs.length; i += 400) {
+      const chunk = allRefs.slice(i, i + 400);
       const batch = adminDb.batch();
       chunk.forEach((ref) => batch.delete(ref));
       await batch.commit();
@@ -360,18 +464,77 @@ export async function clearAllVotes(): Promise<{ deletedVotes: number; deletedVo
 }
 
 /**
+ * Clear all candidates from Firestore (candidates collection + nominations in users)
+ */
+export async function clearAllCandidates(): Promise<{ deletedCandidates: number }> {
+  try {
+    const candidatesSnap = await adminDb.collection('candidates').get();
+    const deletedCandidates = candidatesSnap.size;
+
+    for (let i = 0; i < candidatesSnap.docs.length; i += 400) {
+      const chunk = candidatesSnap.docs.slice(i, i + 400);
+      const batch = adminDb.batch();
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    // Also clear nominations from users collection
+    try {
+      const usersSnap = await adminDb.collection('users').get();
+      const usersWithNoms = usersSnap.docs.filter((d) => {
+        const u = d.data();
+        return Array.isArray(u?.nominations) && u.nominations.length > 0;
+      });
+
+      for (let i = 0; i < usersWithNoms.length; i += 400) {
+        const chunk = usersWithNoms.slice(i, i + 400);
+        const batch = adminDb.batch();
+        chunk.forEach((d) => batch.update(d.ref, { nominations: [] }));
+        await batch.commit();
+      }
+    } catch (usersErr) {
+      console.warn('Note: Could not clear users nominations:', usersErr);
+    }
+
+    invalidateCandidateCache();
+    return { deletedCandidates };
+  } catch (error) {
+    console.error('Error clearing candidates from Firestore:', error);
+    throw error;
+  }
+}
+
+/**
  * Check whether a voter has already submitted their ballot
  */
 export async function hasUserVoted(email: string): Promise<{ hasVoted: boolean; votedAt?: string }> {
   try {
     if (!email) return { hasVoted: false };
-    const docSnap = await adminDb.collection('voter_records').doc(email.toLowerCase().trim()).get();
+    const cleanEmail = email.toLowerCase().trim();
+    const docSnap = await adminDb.collection('voter_records').doc(cleanEmail).get();
     if (docSnap.exists) {
       const data = docSnap.data();
-      return {
-        hasVoted: true,
-        votedAt: data?.votedAtFormatted || data?.votedAt,
-      };
+      if (data?.hasVoted !== false) {
+        let displayTime = data?.votedAtFormatted;
+        if (data?.votedAt) {
+          try {
+            displayTime = new Date(data.votedAt).toLocaleString('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true,
+            });
+          } catch {}
+        }
+        return {
+          hasVoted: true,
+          votedAt: displayTime || data?.votedAtFormatted || 'Verified',
+        };
+      }
     }
     return { hasVoted: false };
   } catch (error) {
@@ -424,6 +587,7 @@ export async function submitBallot(
     const now = new Date();
     const isoTime = now.toISOString();
     const formattedTime = now.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -462,6 +626,7 @@ export async function submitBallot(
       const ballotDate = new Date(now.getTime() - jitterMs);
       const ballotIsoTime = ballotDate.toISOString();
       const ballotFormattedTime = ballotDate.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -555,8 +720,11 @@ export async function getVotingResults(filterSemester?: string): Promise<{
 }> {
   try {
     const candidates = await getCandidates();
-    const filteredCandidates = filterSemester
-      ? candidates.filter((c) => c.semester === filterSemester)
+
+    const isFiltered = Boolean(filterSemester && filterSemester !== 'all' && filterSemester !== 'All');
+
+    const filteredCandidates = isFiltered
+      ? candidates.filter((c) => !c.semester || c.semester === 'College-Wide' || c.semester.toLowerCase() === filterSemester?.toLowerCase())
       : candidates;
 
     // 1. Fetch pre-aggregated tallies
@@ -601,23 +769,18 @@ export async function getVotingResults(filterSemester?: string): Promise<{
       }
     }
 
-    // 4. Build post results using aggregated tallies
-    const allKnownPostIds = new Set<string>();
-    OFFICIAL_COUNCIL_POSTS.forEach((p) => allKnownPostIds.add(p.id));
-    filteredCandidates.forEach((c) => allKnownPostIds.add(c.postId));
-    Object.keys(talliesMap).forEach((pId) => allKnownPostIds.add(pId));
-
+    // 4. Build post results using aggregated tallies for OFFICIAL_COUNCIL_POSTS
     const postResults: PostResult[] = [];
     let calculatedTotalVotes = 0;
 
-    for (const postId of Array.from(allKnownPostIds)) {
-      const officialPostMeta = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === postId);
+    for (const officialPostMeta of OFFICIAL_COUNCIL_POSTS) {
+      const postId = officialPostMeta.id;
       const postCandidates = filteredCandidates.filter((c) => c.postId === postId);
       const tallyData = talliesMap[postId] || { totalVotes: 0, candidateVotes: {} };
       const totalPostVotes = tallyData.totalVotes;
       calculatedTotalVotes += totalPostVotes;
 
-      const seats = officialPostMeta?.seats ?? (postId.includes('coordinator') || postId === 'general_secretary' ? 2 : 1);
+      const seats = officialPostMeta?.seats ?? (postId.includes('coordinator') ? 2 : 1);
       const genderRule = officialPostMeta?.genderRule ?? (seats === 2 ? '1_boy_1_girl' : 'any');
 
       // Candidate IDs
@@ -708,7 +871,7 @@ export async function getVotingResults(filterSemester?: string): Promise<{
       postResults.push({
         postId,
         postName,
-        semester: postCandidates[0]?.semester || '6th',
+        semester: postCandidates[0]?.semester || 'College-Wide',
         seats,
         genderRule,
         totalVotes: totalPostVotes,
@@ -732,12 +895,31 @@ export async function getVotingResults(filterSemester?: string): Promise<{
         const payloadDisplay = (v.encryptedPayload || crypto.createHmac('sha256', BALLOT_ENCRYPTION_KEY).update(doc.id).digest('hex')).substring(0, 16);
         const voterToken = crypto.createHash('md5').update(doc.id + (v.timestamp || '')).digest('hex').substring(0, 8).toUpperCase();
 
+        let timeFormatted = '';
+        if (v.timestamp) {
+          try {
+            timeFormatted = new Date(v.timestamp).toLocaleString('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true,
+            });
+          } catch {}
+        }
+        if (!timeFormatted) {
+          timeFormatted = v.timestampFormatted || 'Recently';
+        }
+
         return {
           id: doc.id,
           postName: v.postName || v.postId,
           candidateName: 'CONFIDENTIAL',
-          semester: v.semester || '6th',
-          timestampFormatted: v.timestampFormatted || new Date(v.timestamp).toLocaleString('en-IN'),
+          semester: v.semester || 'College-Wide',
+          timestampFormatted: timeFormatted,
           encryptedBallotHash: `BALLOT#${hashDisplay}`,
           encryptedPayload: `ENC:${payloadDisplay}...`,
           anonymizedVoterToken: `VOTER#${voterToken}`,

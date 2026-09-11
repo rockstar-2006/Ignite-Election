@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Candidate } from '@/lib/server/voting';
 import { OFFICIAL_COUNCIL_POSTS, OfficialPost } from '@/lib/constants';
 import { 
@@ -18,8 +19,11 @@ import {
   User,
   Users,
   AlertTriangle,
-  LogOut
+  LogOut,
+  X,
+  RefreshCw
 } from 'lucide-react';
+import { requestPortalFullscreen } from './AutoFullscreen';
 
 interface VotingBoothProps {
   semester: string;
@@ -41,10 +45,28 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
   const [selectedDualVotes, setSelectedDualVotes] = useState<Record<string, { boy?: string; girl?: string; anySelected?: string[] }>>({});
   
   const [confirmModal, setConfirmModal] = useState(false);
+  const [confirmChecked, setConfirmChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logoutCountdown, setLogoutCountdown] = useState(8);
+  const [mounted, setMounted] = useState(false);
+  const voterSemesterLabel = 'College-Wide Council';
 
-  const voterSemesterLabel = semester ? `${semester} Sem` : 'College-Wide';
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Prevent background scrolling while modal is open
+  useEffect(() => {
+    if (confirmModal) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+      setConfirmChecked(false);
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [confirmModal]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -66,43 +88,84 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
     };
   }, [hasVoted, onVoteSuccess]);
 
+  // Initial load
   useEffect(() => {
-    loadVotingData();
+    loadVotingData(false);
   }, [email, semester]);
 
-  const loadVotingData = async () => {
-    setLoading(true);
-    setError(null);
+  // CONTINUOUS REAL-TIME POLLING (Every 2.5 seconds):
+  // Polls server for voting status (in case admin cleared votes or reset voter),
+  // election status (in case admin opened/closed voting), and candidates list.
+  // Uses silent=true to avoid flashing the full-page loader.
+  useEffect(() => {
+    const pollTimer = setInterval(() => {
+      loadVotingData(true);
+    }, 2500);
+    return () => clearInterval(pollTimer);
+  }, [email, semester]);
+
+  const loadVotingData = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       // 1. Check voting status of current student
-      const statusRes = await fetch('/api/votes/status');
+      const statusUrl = email 
+        ? `/api/votes/status?email=${encodeURIComponent(email)}&t=${Date.now()}`
+        : `/api/votes/status?t=${Date.now()}`;
+      const statusRes = await fetch(statusUrl, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Pragma': 'no-cache',
+        },
+      });
       if (statusRes.ok) {
         const statusData = await statusRes.json();
-        if (statusData.hasVoted) {
-          setHasVoted(true);
-          setVotedAt(statusData.votedAt);
-        }
+        const serverHasVoted = Boolean(statusData.hasVoted);
+        setHasVoted(serverHasVoted);
+        setVotedAt(serverHasVoted ? statusData.votedAt : null);
+      } else {
+        setHasVoted(false);
+        setVotedAt(null);
       }
 
       // 2. Fetch election commission publication & voting open status
-      const electionRes = await fetch('/api/election-status');
+      const electionRes = await fetch(`/api/election-status?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store, no-cache',
+          'Pragma': 'no-cache',
+        },
+      });
       if (electionRes.ok) {
         const electData = await electionRes.json();
         setElectionStatus(electData.status || { isPublished: false, votingOpen: false });
       }
 
       // 3. Load official candidates from database
-      const candRes = await fetch('/api/candidates');
+      const candRes = await fetch(`/api/candidates?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store, no-cache',
+          'Pragma': 'no-cache',
+        },
+      });
       if (candRes.ok) {
         const candData = await candRes.json();
         const allCandidates: Candidate[] = candData.candidates || [];
         setCandidates(allCandidates);
       }
     } catch (err: any) {
-      console.error('Error loading voting booth data:', err);
-      setError('Failed to load election candidates. Please refresh the page.');
+      if (!silent) {
+        console.error('Error loading voting booth data:', err);
+        setError('Failed to load election candidates. Please refresh the page.');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -122,23 +185,6 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
         postConfig: postDef,
         candidates: postCands,
       };
-    }
-  });
-
-  // Also include any posts not in predefined list if present in candidate data
-  candidates.forEach((cand) => {
-    if (!postsMap[cand.postId]) {
-      postsMap[cand.postId] = {
-        postName: cand.postName || cand.postId,
-        postConfig: postConfigMap.get(cand.postId) || {
-          id: cand.postId,
-          name: cand.postName || cand.postId,
-          seats: 1,
-          genderRule: 'any',
-        },
-        candidates: [],
-      };
-      postsMap[cand.postId].candidates.push(cand);
     }
   });
 
@@ -214,6 +260,7 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
   };
 
   const handleOpenConfirmModal = () => {
+    requestPortalFullscreen();
     if (!isBallotComplete) {
       setError(`Please complete selections for all ${totalContestedPosts} positions before reviewing your ballot.`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -251,6 +298,7 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          email: email || undefined,
           semester: semester || 'College-Wide',
           selections: selectionsPayload,
         }),
@@ -263,7 +311,19 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
       }
 
       setHasVoted(true);
-      setVotedAt(data.votedAt || new Date().toLocaleString('en-IN'));
+      setVotedAt(
+        data.votedAt ||
+          new Date().toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true,
+          })
+      );
       setConfirmModal(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
@@ -289,6 +349,28 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
   // STATE 1: ALREADY VOTED (Official Certificate)
   // ==========================================
   if (hasVoted) {
+    const formattedDisplayTime = (() => {
+      if (!votedAt) return 'Verified Time';
+      if (votedAt.includes('T') || votedAt.includes('Z') || /^\d{4}-\d{2}-\d{2}/.test(votedAt)) {
+        try {
+          const d = new Date(votedAt);
+          if (!isNaN(d.getTime())) {
+            return d.toLocaleString('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true,
+            });
+          }
+        } catch {}
+      }
+      return votedAt;
+    })();
+
     return (
       <div className="max-w-2xl mx-auto animate-fade-in font-outfit">
         <div className="bg-white border-2 border-[#C59048]/30 rounded-3xl p-8 sm:p-12 text-center shadow-xl shadow-[#122147]/5 relative overflow-hidden">
@@ -318,13 +400,13 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
             </div>
             <div className="flex items-center justify-between text-xs pb-3 border-b border-[#EAE3D9]">
               <span className="text-[#122147]/60 font-semibold">Ballot</span>
-              <span className="font-bold text-[#7B1436]">{voterSemesterLabel}</span>
+              <span className="font-bold text-[#7B1436]">Student Council General Election</span>
             </div>
             <div className="flex items-center justify-between text-xs pb-3 border-b border-[#EAE3D9]">
               <span className="text-[#122147]/60 font-semibold">Time Recorded</span>
               <span className="font-mono font-bold text-[#122147] flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-[#C59048]" />
-                {votedAt || 'Verified Time'}
+                {formattedDisplayTime}
               </span>
             </div>
             <div className="flex items-center justify-between text-xs">
@@ -337,6 +419,24 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
 
           <div className="text-[11px] text-[#122147]/60 font-medium">
             Each student can submit their vote only once.
+          </div>
+
+          {/* Real-time Status Sync & Refresh Action */}
+          <div className="flex flex-wrap items-center justify-center gap-3 mt-4">
+            <button
+              onClick={() => loadVotingData(false)}
+              disabled={loading}
+              className="px-4 py-2 rounded-full bg-white hover:bg-stone-50 border border-[#EAE3D9] text-[#122147] text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
+              title="Check if admin has cleared votes"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-[#C59048] ${loading ? 'animate-spin' : ''}`} />
+              <span>Check Ballot Status</span>
+            </button>
+
+            <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-3 py-1 rounded-full font-semibold flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Live Sync Active
+            </span>
           </div>
 
           {/* Auto Logout Card for Next Student */}
@@ -435,13 +535,13 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
   // STATE 4: ACTIVE OFFICIAL VOTING BOOTH
   // ==========================================
   return (
-    <div className="space-y-8 animate-fade-in relative font-outfit">
+    <div className="space-y-8 relative font-outfit">
       {/* Modern Ballot Header Card */}
       <div className="bg-white border border-[#EAE3D9] rounded-3xl p-6 sm:p-8 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5">
         <div>
           <div className="flex items-center gap-2 mb-2">
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-[#FAF3E8] text-[#A37332] border border-[#E8D3B5]">
-              Student Council • {voterSemesterLabel}
+              Student Council General Election
             </span>
             <span className="text-stone-300">•</span>
             <span className="text-xs text-[#7B1436] font-semibold">
@@ -509,7 +609,7 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
                         {postData.postName}
                       </h3>
                       <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-stone-100 text-stone-700 border border-stone-200">
-                        {postConfig.seats} {postConfig.seats === 1 ? 'Seat' : 'Seats (1 Boy & 1 Girl)'}
+                        {postConfig.seats === 1 ? '1 Seat (Open Contest — 1 Winner)' : '2 Seats (1 Boy & 1 Girl)'}
                       </span>
                     </div>
                     <p className="text-xs text-stone-500 font-medium mt-0.5">
@@ -555,6 +655,7 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
                             cand={cand}
                             isSelected={isSelected}
                             onSelect={() => handleSelectDualGender(postId, 'Male', cand.id)}
+                            isDualGenderPost={true}
                           />
                         );
                       })}
@@ -581,6 +682,7 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
                             cand={cand}
                             isSelected={isSelected}
                             onSelect={() => handleSelectDualGender(postId, 'Female', cand.id)}
+                            isDualGenderPost={true}
                           />
                         );
                       })}
@@ -607,25 +709,37 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
                           cand={cand}
                           isSelected={isSelected}
                           onSelect={() => handleSelectDualAny(postId, cand.id, Math.min(2, postCands.length))}
+                          isDualGenderPost={true}
                         />
                       );
                     })}
                   </div>
                 </div>
               ) : (
-                // Single Winner Post (President, Vice-President, etc.)
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  {postCands.map((cand) => {
-                    const isSelected = singleSelectedId === cand.id;
-                    return (
-                      <CandidateCard
-                        key={cand.id}
-                        cand={cand}
-                        isSelected={isSelected}
-                        onSelect={() => handleSelectSingle(postId, cand.id)}
-                      />
-                    );
-                  })}
+                // Single Winner Post (President, Vice-President, General Secretary, etc.)
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-stone-500 font-medium">
+                      Select 1 candidate (Open contest — all nominees compete together):
+                    </p>
+                    {singleSelectedId && (
+                      <span className="text-xs font-semibold text-emerald-700">✓ 1 Candidate Selected</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {postCands.map((cand) => {
+                      const isSelected = singleSelectedId === cand.id;
+                      return (
+                        <CandidateCard
+                          key={cand.id}
+                          cand={cand}
+                          isSelected={isSelected}
+                          onSelect={() => handleSelectSingle(postId, cand.id)}
+                          isDualGenderPost={false}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -670,75 +784,126 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
       </div>
 
       {/* Official Ballot Confirmation Modal */}
-      {confirmModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in font-outfit">
-          <div className="bg-white border border-[#EAE3D9] rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <div className="w-14 h-14 bg-[#FAF3E8] border border-[#E8D3B5] text-[#7B1436] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xs">
-              <ShieldCheck className="w-8 h-8" />
-            </div>
+      {mounted && confirmModal && typeof document !== 'undefined' && createPortal(
+        <div 
+          className="fixed inset-0 z-[99999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 font-outfit overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !submitting) setConfirmModal(false);
+          }}
+        >
+          <div className="bg-white border-2 border-[#C59048]/40 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl relative my-auto max-h-[90vh] flex flex-col justify-between overflow-hidden z-[100000]">
+            {/* Close Button Top-Right */}
+            <button
+              type="button"
+              onClick={() => setConfirmModal(false)}
+              disabled={submitting}
+              className="absolute top-4 right-4 p-2 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition cursor-pointer z-10"
+              title="Close modal"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="overflow-y-auto pr-1">
+              <div className="w-14 h-14 bg-[#FAF3E8] border border-[#E8D3B5] text-[#7B1436] rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-2xs">
+                <ShieldCheck className="w-8 h-8 text-[#7B1436]" />
+              </div>
 
-            <h3 className="text-xl font-bold text-[#122147] text-center tracking-tight">
-              Confirm Your Vote
-            </h3>
-            <p className="text-xs text-stone-500 text-center mt-1 font-normal">
-              Please review your choices before submitting. Once submitted, your vote cannot be changed or resubmitted.
-            </p>
+              <div className="text-center mb-4">
+                <span className="px-3 py-1 rounded-full bg-[#FDF2F4] text-[#7B1436] border border-[#F0C4CE] text-[11px] font-bold uppercase tracking-wider inline-block mb-1.5">
+                  Final Ballot Verification
+                </span>
+                <h3 className="text-xl font-bold text-[#122147] tracking-tight">
+                  Confirm Your Official Vote
+                </h3>
+                <p className="text-xs text-stone-500 mt-1 font-normal leading-relaxed">
+                  Please review your choices below. <strong>Once submitted, your vote is recorded permanently in the election vault and cannot be changed or resubmitted.</strong>
+                </p>
+              </div>
 
-            {/* Selected Candidates Review List */}
-            <div className="my-6 space-y-2.5 max-h-60 overflow-y-auto pr-1">
-              {Object.entries(postsMap).map(([postId, postData]) => {
-                const { postConfig, candidates: postCands } = postData;
-                const isDual = postConfig.seats === 2 && postConfig.genderRule === '1_boy_1_girl';
-                
-                let chosenNames: string[] = [];
-                if (!isDual) {
-                  const c = postCands.find((x) => x.id === selectedSingleVotes[postId]);
-                  if (c) chosenNames.push(c.name);
-                } else {
-                  const dual = selectedDualVotes[postId] || {};
-                  if (dual.boy) {
-                    const b = postCands.find((x) => x.id === dual.boy);
-                    if (b) chosenNames.push(`Boy: ${b.name}`);
+              {/* Selected Candidates Review List */}
+              <div className="my-4 space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                {Object.entries(postsMap).map(([postId, postData]) => {
+                  const { postConfig, candidates: postCands } = postData;
+                  const isDual = postConfig.seats === 2 && postConfig.genderRule === '1_boy_1_girl';
+                  
+                  let chosenDetails: { name: string; tag?: string }[] = [];
+                  if (!isDual) {
+                    const c = postCands.find((x) => x.id === selectedSingleVotes[postId]);
+                    if (c) chosenDetails.push({ name: c.name });
+                  } else {
+                    const dual = selectedDualVotes[postId] || {};
+                    if (dual.boy) {
+                      const b = postCands.find((x) => x.id === dual.boy);
+                      if (b) chosenDetails.push({ name: b.name, tag: 'Boy Winner' });
+                    }
+                    if (dual.girl) {
+                      const g = postCands.find((x) => x.id === dual.girl);
+                      if (g) chosenDetails.push({ name: g.name, tag: 'Girl Winner' });
+                    }
+                    if (dual.anySelected) {
+                      dual.anySelected.forEach((id) => {
+                        const c = postCands.find((x) => x.id === id);
+                        if (c && !chosenDetails.some((d) => d.name === c.name)) chosenDetails.push({ name: c.name });
+                      });
+                    }
                   }
-                  if (dual.girl) {
-                    const g = postCands.find((x) => x.id === dual.girl);
-                    if (g) chosenNames.push(`Girl: ${g.name}`);
-                  }
-                  if (dual.anySelected) {
-                    dual.anySelected.forEach((id) => {
-                      const c = postCands.find((x) => x.id === id);
-                      if (c && !chosenNames.some((n) => n.includes(c.name))) chosenNames.push(c.name);
-                    });
-                  }
-                }
 
-                return (
-                  <div
-                    key={postId}
-                    className="p-3.5 bg-[#FAF7F2] border border-[#EAE3D9] rounded-2xl flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <span className="text-[10px] text-[#7B1436] font-semibold uppercase tracking-wider block">
-                        {postData.postName}
+                  return (
+                    <div
+                      key={postId}
+                      className="p-3.5 bg-[#FAF7F2] border border-[#EAE3D9] rounded-2xl flex items-center justify-between text-xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] text-[#7B1436] font-bold uppercase tracking-wider block">
+                          {postData.postName}
+                        </span>
+                        <div className="mt-0.5 space-y-0.5">
+                          {chosenDetails.length > 0 ? (
+                            chosenDetails.map((item, idx) => (
+                              <p key={idx} className="font-bold text-[#122147] text-xs truncate">
+                                {item.tag && (
+                                  <span className="text-[10px] font-semibold text-[#A37332] mr-1.5 bg-[#FAF3E8] px-1.5 py-0.5 rounded border border-[#E8D3B5]">
+                                    {item.tag}
+                                  </span>
+                                )}
+                                {item.name}
+                              </p>
+                            ))
+                          ) : (
+                            <span className="text-stone-400 italic">None Selected</span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="font-mono text-xs text-emerald-800 font-bold bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 shrink-0 ml-2">
+                        ✓ Selected
                       </span>
-                      <strong className="text-sm font-bold text-[#122147]">
-                        {chosenNames.length > 0 ? chosenNames.join(' | ') : 'None Selected'}
-                      </strong>
                     </div>
-                    <span className="font-mono text-xs text-[#A37332] font-semibold bg-[#FAF3E8] px-2.5 py-0.5 rounded-full border border-[#E8D3B5]">
-                      {chosenNames.length} {chosenNames.length === 1 ? 'vote' : 'votes'}
-                    </span>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+
+              {/* Strict Secret & Final Notice */}
+              <div className="p-3 bg-[#FAF3E8] border border-[#E8D3B5] rounded-2xl text-[#A37332] text-xs flex items-center gap-2.5 mb-4">
+                <Lock className="w-4 h-4 text-[#C59048] shrink-0" />
+                <span className="font-medium text-[11px] leading-tight">
+                  Your ballot is confidential, encrypted, and strictly limited to 1 submission per student.
+                </span>
+              </div>
+
+              {/* Confirmation Checkbox */}
+              <label className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#FDF2F4]/70 border border-[#F0C4CE] cursor-pointer mb-5 select-none">
+                <input
+                  type="checkbox"
+                  checked={confirmChecked}
+                  onChange={(e) => setConfirmChecked(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 rounded text-[#7B1436] focus:ring-[#7B1436] cursor-pointer shrink-0"
+                />
+                <span className="text-xs font-semibold text-[#7B1436] leading-tight">
+                  I confirm that my selections above are final and I want to submit my official vote.
+                </span>
+              </label>
             </div>
 
-            <div className="p-3.5 bg-[#FAF3E8] border border-[#E8D3B5] rounded-2xl text-[#A37332] text-xs flex items-center gap-2.5 mb-6">
-              <Lock className="w-4 h-4 text-[#C59048] shrink-0" />
-              <span className="font-medium">Your vote is confidential and secret. Nobody can see who you voted for.</span>
-            </div>
-
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 pt-2 border-t border-[#EAE3D9]">
               <button
                 type="button"
                 onClick={() => setConfirmModal(false)}
@@ -750,8 +915,8 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
               <button
                 type="button"
                 onClick={handleSubmitBallot}
-                disabled={submitting}
-                className="flex-1 px-5 py-3 bg-[#7B1436] hover:bg-[#5e0e28] text-white font-bold text-xs rounded-full transition-all flex items-center justify-center gap-2 shadow-md shadow-[#7B1436]/20 cursor-pointer active:scale-95"
+                disabled={!confirmChecked || submitting}
+                className="flex-1 px-5 py-3 bg-[#7B1436] hover:bg-[#5e0e28] text-white font-bold text-xs rounded-full transition-all flex items-center justify-center gap-2 shadow-md shadow-[#7B1436]/20 cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {submitting ? (
                   <>
@@ -767,7 +932,8 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -780,10 +946,12 @@ function CandidateCard({
   cand,
   isSelected,
   onSelect,
+  isDualGenderPost = false,
 }: {
   cand: Candidate;
   isSelected: boolean;
   onSelect: () => void;
+  isDualGenderPost?: boolean;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
 
@@ -807,12 +975,16 @@ function CandidateCard({
         <div className="flex items-center justify-between gap-3 pb-3 mb-4 border-b border-[#EAE3D9]/70">
           <span
             className={`text-[11px] font-bold px-3 py-0.5 rounded-full border ${
-              cand.gender === 'Female'
-                ? 'bg-[#FDF2F4] text-[#7B1436] border-[#F0C4CE]'
-                : 'bg-[#F0F4FA] text-[#122147] border-[#CBD5E1]'
+              isDualGenderPost
+                ? cand.gender === 'Female'
+                  ? 'bg-[#FDF2F4] text-[#7B1436] border-[#F0C4CE]'
+                  : 'bg-[#F0F4FA] text-[#122147] border-[#CBD5E1]'
+                : 'bg-[#FAF3E8] text-[#7B1436] border-[#E8D3B5]'
             }`}
           >
-            {cand.gender === 'Female' ? 'Girl Candidate' : 'Boy Candidate'}
+            {isDualGenderPost
+              ? (cand.gender === 'Female' ? 'Girl Nominee' : 'Boy Nominee')
+              : 'Official Nominee'}
           </span>
 
           {/* Radio Selection Indicator */}

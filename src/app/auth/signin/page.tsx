@@ -15,10 +15,10 @@ import {
   Vote, 
   Award, 
   Users, 
-  Clock,
-  Download
+  Clock
 } from "lucide-react";
 import SMVITMLogo from "@/components/SMVITMLogo";
+import { requestPortalFullscreen } from "@/components/AutoFullscreen";
 
 function SignInContent() {
   const { user, loginWithGoogle, loading: authLoading } = useAuth();
@@ -27,12 +27,26 @@ function SignInContent() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
   const [electionOpen, setElectionOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
+
+    const checkStandalone = () => {
+      const standalone =
+        typeof window !== 'undefined' &&
+        (window.matchMedia('(display-mode: standalone)').matches ||
+         window.matchMedia('(display-mode: window-controls-overlay)').matches ||
+         window.matchMedia('(display-mode: fullscreen)').matches ||
+         (window.navigator as any).standalone === true ||
+         document.referrer.includes('android-app://') ||
+         searchParams?.get('pwa') === 'true');
+      if (standalone) {
+        setIsStandalone(true);
+      }
+    };
+    checkStandalone();
 
     fetch('/api/election-status')
       .then((res) => res.json())
@@ -40,29 +54,7 @@ function SignInContent() {
         setElectionOpen(Boolean(data.status?.votingOpen && data.status?.isPublished));
       })
       .catch(() => setElectionOpen(false));
-
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-    };
-
-    const handleAppInstalled = () => {
-      setIsInstalled(true);
-      setInstallPrompt(null);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
-
-    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
-      setIsInstalled(true);
-    }
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-    };
-  }, []);
+  }, [searchParams]);
 
   // Handle OAuth errors from NextAuth
   useEffect(() => {
@@ -96,6 +88,7 @@ function SignInContent() {
 
   const handleSignIn = async () => {
     try {
+      requestPortalFullscreen();
       setLoading(true);
       setError(null);
       await loginWithGoogle();
@@ -113,15 +106,119 @@ function SignInContent() {
     }
   };
 
-  const handleInstallClick = async () => {
-    if (!installPrompt) return;
-    installPrompt.prompt();
-    const choiceResult = await installPrompt.userChoice;
-    if (choiceResult.outcome === 'accepted') {
-      setIsInstalled(true);
-    }
-    setInstallPrompt(null);
-  };
+  // When running as an installed PWA (Standalone window) or requested directly,
+  // show ONLY the clean, direct Sign-In screen with zero website/landing clutter.
+  if (mounted && (isStandalone || searchParams?.get('pwa') === 'true' || searchParams?.get('direct') === 'true')) {
+    return (
+      <div className="min-h-screen bg-[#FAF7F2] flex flex-col items-center justify-center p-4 sm:p-6 selection:bg-[#C59048]/20 selection:text-[#7B1436] text-[#122147]">
+        <div className="max-w-md w-full bg-white border border-[#EAE3D9] rounded-3xl p-8 sm:p-10 shadow-xl text-center animate-fade-in relative overflow-hidden">
+          {/* Top Institutional Color Bar */}
+          <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-[#7B1436] via-[#C59048] to-[#122147]" />
+
+          {/* College Logo */}
+          <div className="flex justify-center mb-5 mt-2">
+            <SMVITMLogo size="lg" showText={false} className="shadow-md rounded-2xl" />
+          </div>
+
+          {/* Badge */}
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#FAF3E8] border border-[#E8D3B5] text-[#A37332] text-[11px] font-bold uppercase tracking-wider mb-3">
+            <Sparkles className="w-3.5 h-3.5 text-[#C59048]" />
+            <span>Official Election Portal</span>
+          </div>
+
+          {/* Title */}
+          <h1 className="text-2xl sm:text-3xl font-outfit font-bold text-[#581c38] tracking-tight">
+            Student Council Elections
+          </h1>
+          <p className="text-xs text-stone-500 font-medium mt-1">
+            Shri Madhwa Vadiraja Institute of Technology &amp; Management
+          </p>
+
+          {/* Error Alert Display */}
+          {error && (
+            <div className="my-5 p-3.5 bg-[#FDF2F4] border border-[#F0C4CE] rounded-2xl text-[#7B1436] text-xs font-semibold flex items-start gap-2.5 text-left shadow-2xs">
+              <AlertCircle className="w-4 h-4 shrink-0 text-[#7B1436] mt-0.5" />
+              <div className="leading-relaxed">{error}</div>
+            </div>
+          )}
+
+          {/* Instruction Card */}
+          <div className="my-6 p-4 bg-[#FAF7F2] border border-[#EAE3D9] rounded-2xl text-left space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-[#122147]">
+              <Lock className="w-3.5 h-3.5 text-[#C59048]" />
+              <span>Institutional Single Sign-On</span>
+            </div>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Sign in using your official <strong className="text-[#7B1436]">@sode-edu.in</strong> Google account to access your confidential election ballot.
+            </p>
+          </div>
+
+          {/* Big Google Sign-In Button */}
+          <button
+            onClick={handleSignIn}
+            disabled={loading}
+            className="w-full py-4 px-6 rounded-2xl bg-[#7B1436] hover:bg-[#5e0e28] text-white text-sm font-outfit font-bold shadow-lg shadow-[#7B1436]/25 transition-all duration-200 active:scale-95 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-3"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin text-[#C59048]" />
+                <span>Connecting to Google SSO...</span>
+              </>
+            ) : (
+              <>
+                <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center p-0.5 shrink-0 shadow-2xs">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path
+                      fill="#EA4335"
+                      d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"
+                    />
+                    <path
+                      fill="#4285F4"
+                      d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 12s.7 2.3 1.9 4.7l3.7-2.9z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16c1.8 3.7 5.6 7 10.1 7z"
+                    />
+                  </svg>
+                </div>
+                <span>Sign In with @sode-edu.in</span>
+              </>
+            )}
+          </button>
+
+          {/* Shared Voting Device Helper */}
+          <div className="mt-4 p-3 bg-[#FAF7F2] border border-[#EAE3D9] rounded-2xl text-left text-[11px] text-stone-600 flex items-start gap-2.5 shadow-2xs">
+            <Lock className="w-3.5 h-3.5 text-[#C59048] shrink-0 mt-0.5" />
+            <p className="leading-relaxed">
+              <strong>Shared Voting Booth:</strong> When Google opens, select <strong>&ldquo;Use another account&rdquo;</strong> to sign in with your own student email and password.
+            </p>
+          </div>
+
+          {/* Security Guarantee Badges */}
+          <div className="mt-5 pt-4 border-t border-[#EAE3D9] flex items-center justify-center gap-3 text-[11px] text-stone-500 font-medium">
+            <span className="flex items-center gap-1 text-emerald-700 font-semibold">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              100% Secret Ballot
+            </span>
+            <span>•</span>
+            <span className="flex items-center gap-1 text-[#122147] font-semibold">
+              <CheckCircle2 className="w-3.5 h-3.5 text-[#C59048]" />
+              One Student, One Vote
+            </span>
+          </div>
+        </div>
+
+        <p className="text-center text-xs text-stone-400 mt-6">
+          Shri Madhwa Vadiraja Institute of Technology &amp; Management • Vishwothama Nagar, Bantakal, Udupi
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-radial-warm flex flex-col justify-between font-sans selection:bg-[#C59048]/20 selection:text-[#7B1436] text-[#122147]">
@@ -148,22 +245,8 @@ function SignInContent() {
           {/* Navigation Links & Buttons */}
           <div className="flex items-center gap-3 sm:gap-4">
             <nav className="hidden md:flex items-center gap-6 text-xs font-semibold text-[#122147]/70 mr-2">
-              <a href="#" className="text-[#7B1436] font-bold border-b-2 border-[#7B1436] pb-0.5">Home</a>
               <button onClick={scrollToGuidelines} className="hover:text-[#7B1436] transition cursor-pointer">Guidelines</button>
-              <a href="https://sode-edu.in/smvitm/" target="_blank" rel="noopener noreferrer" className="hover:text-[#7B1436] transition">About SMVITM</a>
             </nav>
-
-            {/* PWA Install Button — proper PWA prompt (no alert fallback) */}
-            {!isInstalled && installPrompt && (
-              <button
-                onClick={handleInstallClick}
-                className="px-3.5 sm:px-4 py-2 rounded-full bg-[#FAF3E8] hover:bg-[#F5EAD7] text-[#7B1436] border border-[#E8D3B5] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-                title="Install app on this device"
-              >
-                <Download className="w-3.5 h-3.5 text-[#C59048]" />
-                <span className="hidden xs:inline sm:inline">Install App</span>
-              </button>
-            )}
 
             <button
               onClick={handleSignIn}
@@ -310,7 +393,7 @@ function SignInContent() {
                       <h4 className="text-xs sm:text-sm font-bold text-[#122147] leading-tight">
                         General Secretary
                       </h4>
-                      <p className="text-[10px] text-[#122147]/60">2 Winners (1 Boy &amp; 1 Girl)</p>
+                      <p className="text-[10px] text-[#122147]/60">1 Winner (Open Contest)</p>
                     </div>
                   </div>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${electionOpen ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-stone-100 text-stone-600 border-stone-200'}`}>
@@ -471,7 +554,7 @@ function SignInContent() {
             Accredited by NAAC with &apos;A&apos; Grade • Affiliated to VTU Belagavi • Approved by AICTE, New Delhi
           </p>
 
-          <div className="pt-2 text-[10px] text-[#A37332] font-serif-elegant italic font-semibold">
+          <div className="pt-1 text-[10px] text-[#A37332] font-serif-elegant italic font-semibold">
             सर्वे भद्राणि पश्यन्तु — May all see auspiciousness
           </div>
 

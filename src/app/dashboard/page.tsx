@@ -10,12 +10,10 @@ import SMVITMLogo from "@/components/SMVITMLogo";
 import { 
   Loader2, 
   LogOut, 
-  Fingerprint, 
   Mail, 
   CheckCircle2, 
   Sparkles, 
-  ShieldCheck,
-  Download
+  ShieldCheck
 } from "lucide-react";
 
 export default function Dashboard() {
@@ -23,32 +21,6 @@ export default function Dashboard() {
   const router = useRouter();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-    };
-
-    const handleAppInstalled = () => {
-      setIsInstalled(true);
-      setInstallPrompt(null);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
-
-    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
-      setIsInstalled(true);
-    }
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-    };
-  }, []);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -57,7 +29,7 @@ export default function Dashboard() {
       getUserProfile(user.email)
         .then((data) => {
           if (!data) {
-            const sem = parseSemesterFromEmail(user.email) || '6th';
+            const sem = parseSemesterFromEmail(user.email) || 'College-Wide';
             const nameParts = (user.name || '').trim().split(' ');
             const firstName = nameParts[0] || 'Student';
             const lastName = nameParts.slice(1).join(' ') || 'Voter';
@@ -91,7 +63,7 @@ export default function Dashboard() {
           setLoading(false);
         })
         .catch(() => {
-          const sem = parseSemesterFromEmail(user.email) || '6th';
+          const sem = parseSemesterFromEmail(user.email) || 'College-Wide';
           const nameParts = (user.name || '').trim().split(' ');
           const autoProfile: UserProfile = {
             uid: user.email,
@@ -142,23 +114,6 @@ export default function Dashboard() {
               <SMVITMLogo size="sm" showText={true} lightText={false} />
             </div>
             <div className="flex items-center gap-3">
-              {!isInstalled && installPrompt && (
-                <button
-                  onClick={() => {
-                    installPrompt.prompt();
-                    installPrompt.userChoice.then((choiceResult: any) => {
-                      if (choiceResult.outcome === 'accepted') setIsInstalled(true);
-                      setInstallPrompt(null);
-                    });
-                  }}
-                  className="px-3.5 sm:px-4 py-2 rounded-full bg-[#FAF3E8] hover:bg-[#F5EAD7] text-[#7B1436] border border-[#E8D3B5] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-                  title="Install app on this device"
-                >
-                  <Download className="w-3.5 h-3.5 text-[#C59048]" />
-                  <span className="hidden sm:inline">Install App</span>
-                </button>
-              )}
-
               <button 
                 onClick={logout}
                 className="px-4 py-2 rounded-full bg-[#7B1436]/10 hover:bg-[#7B1436] text-[#7B1436] hover:text-white border border-[#7B1436]/25 transition-all text-xs font-semibold flex items-center gap-2 cursor-pointer shadow-2xs active:scale-95"
@@ -188,9 +143,7 @@ export default function Dashboard() {
                       {fullName}
                     </h2>
                     <span className="px-3 py-0.5 bg-[#FAF3E8] text-[#A37332] text-xs font-semibold rounded-full border border-[#E8D3B5]">
-                      {profile.semester && (profile.semester.includes('th') || profile.semester.includes('Sem')) 
-                        ? (profile.semester.includes('Semester') ? profile.semester : `${profile.semester} Semester`)
-                        : profile.semester || 'Eligible Elector'}
+                      Student Elector
                     </span>
                     <span className="px-3 py-0.5 bg-stone-100 text-stone-700 text-xs font-medium rounded-full border border-stone-200">
                       {profile.branch || 'Engineering'}
@@ -199,12 +152,8 @@ export default function Dashboard() {
 
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-stone-500 font-normal">
                     <span className="flex items-center gap-1.5">
-                      <Fingerprint className="w-3.5 h-3.5 text-[#C59048]" />
-                      USN: <strong className="text-[#122147] font-mono font-semibold">{profile.usn}</strong>
-                    </span>
-                    <span className="flex items-center gap-1.5">
                       <Mail className="w-3.5 h-3.5 text-[#C59048]" />
-                      <span>{profile.email}</span>
+                      <span className="font-medium text-[#122147]">{profile.email}</span>
                     </span>
                   </div>
                 </div>

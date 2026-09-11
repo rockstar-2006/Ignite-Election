@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getElectionStatus } from '@/lib/server/voting';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET() {
   try {
     const status = await getElectionStatus();
@@ -8,7 +11,9 @@ export async function GET() {
       { success: true, status },
       {
         headers: {
-          'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
         },
       }
     );
