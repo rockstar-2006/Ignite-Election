@@ -9,7 +9,7 @@ export interface OfficialPost {
 export const OFFICIAL_COUNCIL_POSTS: OfficialPost[] = [
   { id: 'president', name: 'President', seats: 1, genderRule: 'any', description: 'Head of Student Council (1 Winner)' },
   { id: 'vice_president', name: 'Vice-President', seats: 1, genderRule: 'any', description: 'Deputy Head of Student Council (1 Winner)' },
-  { id: 'general_secretary', name: 'General Secretary', seats: 2, genderRule: '1_boy_1_girl', description: 'Student Council General Secretary (2 Winners: 1 Boy & 1 Girl)' },
+  { id: 'general_secretary', name: 'General Secretary', seats: 1, genderRule: 'any', description: 'Student Council General Secretary (1 Winner)' },
   { id: 'cultural_coordinator', name: 'Cultural Coordinator', seats: 2, genderRule: '1_boy_1_girl', description: 'Cultural Activities & Events (2 Winners: 1 Boy & 1 Girl)' },
   { id: 'technical_coordinator', name: 'Technical Coordinator', seats: 2, genderRule: '1_boy_1_girl', description: 'Technical & Coding Events (2 Winners: 1 Boy & 1 Girl)' },
   { id: 'sports_coordinator', name: 'Sports Coordinator', seats: 2, genderRule: '1_boy_1_girl', description: 'Sports & Athletics (2 Winners: 1 Boy & 1 Girl)' },
@@ -22,14 +22,7 @@ export const ELECTION_POSTS = {
 } as const;
 
 export function parseSemesterFromEmail(email: string): string | null {
-  const prefix = email.split('@')[0].toLowerCase();
-  
-  // Format: name.23ad... or 23ad...
-  if (prefix.includes('23ad')) return '6th';
-  if (prefix.includes('12ad')) return '6th'; // Support other patterns if they exist
-  if (prefix.includes('24ad')) return '4th';
-  
-  return null;
+  return 'College-Wide';
 }
 
 export const ADMIN_EMAILS = [

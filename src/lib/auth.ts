@@ -27,6 +27,13 @@ export const authOptions: NextAuthOptions = {
       clientId: env.googleClientId,
       clientSecret: env.googleClientSecret,
       allowDangerousEmailAccountLinking: true,
+      authorization: {
+        params: {
+          prompt: "select_account",
+          access_type: "offline",
+          response_type: "code",
+        },
+      },
     }),
   ],
   callbacks: {

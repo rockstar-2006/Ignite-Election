@@ -81,6 +81,9 @@ const adminDb = new Proxy({} as admin.firestore.Firestore, {
   get(target, prop, receiver) {
     if (!_adminDb && admin.apps.length > 0) {
       _adminDb = admin.firestore();
+      try {
+        _adminDb.settings({ ignoreUndefinedProperties: true });
+      } catch {}
     }
     if (!_adminDb) {
       throw new Error('Firebase Admin DB is not initialized. Please check your Firebase service account configuration.');

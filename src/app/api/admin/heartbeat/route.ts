@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { touchAdminSession, getActiveAdminSession } from '@/lib/server/admin-auth';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const { sessionId } = await request.json();

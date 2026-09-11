@@ -109,14 +109,29 @@ export async function getElectionStatus(): Promise<ElectionStatus> {
 export async function setElectionStatus(isPublished: boolean, votingOpen: boolean): Promise<ElectionStatus> {
   try {
     const now = new Date().toISOString();
-    const statusData: ElectionStatus = {
-      isPublished,
-      votingOpen,
+    const docRef = adminDb.collection('election_settings').doc('general');
+    const existingSnap = await docRef.get();
+    const existingData = existingSnap.exists ? existingSnap.data() : {};
+
+    const statusData: Record<string, any> = {
+      isPublished: Boolean(isPublished),
+      votingOpen: Boolean(votingOpen),
       updatedAt: now,
-      publishedAt: isPublished ? now : undefined,
     };
-    await adminDb.collection('election_settings').doc('general').set(statusData, { merge: true });
-    return statusData;
+
+    if (isPublished) {
+      statusData.publishedAt = existingData?.publishedAt || now;
+    } else if (existingData?.publishedAt) {
+      statusData.publishedAt = existingData.publishedAt;
+    }
+
+    await docRef.set(statusData, { merge: true });
+    return {
+      isPublished: Boolean(isPublished),
+      votingOpen: Boolean(votingOpen),
+      updatedAt: now,
+      publishedAt: statusData.publishedAt,
+    };
   } catch (error) {
     console.error('Error setting election status:', error);
     throw error;
@@ -131,16 +146,11 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
   try {
     const candidateMap = new Map<string, Candidate>();
 
-    // 1. Fetch from 'candidates' collection
+    // 1. Fetch all candidates from 'candidates' collection in Firestore
     const candidatesCollection = adminDb.collection('candidates');
     const snapshot = await candidatesCollection.get();
 
     snapshot.forEach((doc) => {
-      // Exclude and purge legacy dummy seeded candidates (prefixed with cand_)
-      if (doc.id.startsWith('cand_')) {
-        candidatesCollection.doc(doc.id).delete().catch(() => {});
-        return;
-      }
       const data = doc.data();
       candidateMap.set(doc.id, {
         id: doc.id,
@@ -160,15 +170,23 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
 
     // 2. Fetch from 'users' collection with nominations (if student submitted nomination via portal)
     try {
-      const usersSnapshot = await adminDb.collection('users').where('nominations', '!=', []).get();
+      const usersSnapshot = await adminDb.collection('users').get();
       usersSnapshot.forEach((doc) => {
         const userData = doc.data();
-        const userNominations = Array.isArray(userData.nominations) ? userData.nominations : [];
+        if (!userData) return;
+        const userNominations = Array.isArray(userData.nominations)
+          ? userData.nominations
+          : typeof userData.nominations === 'string'
+          ? [userData.nominations]
+          : [];
         
         userNominations.forEach((postId: string) => {
+          if (!postId) return;
           const candidateUniqueId = `${doc.id}_${postId}`;
           if (!candidateMap.has(candidateUniqueId) && !candidateMap.has(doc.id)) {
-            const officialPost = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === postId);
+            const officialPost = OFFICIAL_COUNCIL_POSTS.find(
+              (p) => p.id === postId || p.id.toLowerCase() === postId.toLowerCase() || p.name.toLowerCase() === postId.toLowerCase()
+            );
             const postName = officialPost?.name || postId;
             const candSemester = userData.semester || '6th';
             const gender: 'Male' | 'Female' = userData.gender === 'Female' ? 'Female' : 'Male';
@@ -179,7 +197,7 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
               usn: userData.usn || '',
               semester: candSemester,
               year: userData.year || '3rd Year',
-              postId: postId,
+              postId: officialPost ? officialPost.id : postId,
               postName: postName,
               department: userData.department || userData.branch || '',
               gender: gender,
@@ -191,7 +209,7 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
         });
       });
     } catch (usersErr) {
-      console.warn('Note: Could not query users nominations query:', usersErr);
+      console.warn('Note: Could not query users nominations:', usersErr);
     }
 
     let candidates = Array.from(candidateMap.values());
@@ -255,8 +273,48 @@ export async function createCandidate(data: {
  */
 export async function updateCandidate(id: string, updates: Partial<Candidate>): Promise<void> {
   try {
-    const docRef = adminDb.collection('candidates').doc(id);
-    await docRef.update(updates);
+    const cleanUpdates: Record<string, any> = {};
+    Object.entries(updates).forEach(([k, v]) => {
+      if (v !== undefined) cleanUpdates[k] = v;
+    });
+
+    if (cleanUpdates.postId) {
+      const postObj = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === cleanUpdates.postId);
+      cleanUpdates.postName = cleanUpdates.postName || postObj?.name || cleanUpdates.postId;
+    }
+
+    const candRef = adminDb.collection('candidates').doc(id);
+    const candDoc = await candRef.get();
+    if (candDoc.exists) {
+      await candRef.update(cleanUpdates);
+      return;
+    }
+
+    // If ID is from users nomination `email_postId`
+    if (id.includes('_')) {
+      const parts = id.split('_');
+      const email = parts[0];
+      const userRef = adminDb.collection('users').doc(email);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        const uUpdates: Record<string, any> = {};
+        if (updates.name) uUpdates.name = updates.name;
+        if (updates.usn) uUpdates.usn = updates.usn;
+        if (updates.year) uUpdates.year = updates.year;
+        if (updates.semester) uUpdates.semester = updates.semester;
+        if (updates.department) uUpdates.department = updates.department;
+        if (updates.gender) uUpdates.gender = updates.gender;
+        if (updates.photoURL !== undefined) uUpdates.photoURL = updates.photoURL;
+        if (updates.manifesto !== undefined) uUpdates.manifesto = updates.manifesto;
+        if (Object.keys(uUpdates).length > 0) {
+          await userRef.update(uUpdates);
+        }
+        return;
+      }
+    }
+
+    // Fallback: set doc with merge if not found
+    await candRef.set(cleanUpdates, { merge: true });
   } catch (error) {
     console.error('Error updating candidate:', error);
     throw error;
@@ -264,11 +322,32 @@ export async function updateCandidate(id: string, updates: Partial<Candidate>): 
 }
 
 /**
- * Admin: Delete candidate from Firestore
+ * Admin: Delete candidate record
  */
 export async function deleteCandidate(id: string): Promise<void> {
   try {
-    await adminDb.collection('candidates').doc(id).delete();
+    const candRef = adminDb.collection('candidates').doc(id);
+    const candDoc = await candRef.get();
+    if (candDoc.exists) {
+      await candRef.delete();
+      return;
+    }
+
+    // If ID is from users nomination `email_postId`
+    if (id.includes('_')) {
+      const parts = id.split('_');
+      const email = parts[0];
+      const postId = parts.slice(1).join('_');
+      const userRef = adminDb.collection('users').doc(email);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        const uData = userDoc.data();
+        const currentNoms: string[] = Array.isArray(uData?.nominations) ? uData.nominations : [];
+        const updated = currentNoms.filter((p) => p !== postId);
+        await userRef.update({ nominations: updated });
+        return;
+      }
+    }
   } catch (error) {
     console.error('Error deleting candidate:', error);
     throw error;
@@ -276,34 +355,67 @@ export async function deleteCandidate(id: string): Promise<void> {
 }
 
 /**
- * Clear all votes and voter records from Firestore
+ * Clear all votes and voter records from Firestore (both votes and voter_records collections)
  */
 export async function clearAllVotes(): Promise<{ deletedVotes: number; deletedVoters: number }> {
   try {
     const votesSnap = await adminDb.collection('votes').get();
     const votersSnap = await adminDb.collection('voter_records').get();
 
-    if (votesSnap.empty && votersSnap.empty) {
-      return { deletedVotes: 0, deletedVoters: 0 };
+    const voteCount = votesSnap.size;
+    const voterCount = votersSnap.size;
+
+    const allDocs = [...votesSnap.docs, ...votersSnap.docs];
+    for (let i = 0; i < allDocs.length; i += 400) {
+      const chunk = allDocs.slice(i, i + 400);
+      const batch = adminDb.batch();
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
     }
 
-    const batch = adminDb.batch();
-    let voteCount = 0;
-    votesSnap.forEach((doc) => {
-      batch.delete(doc.ref);
-      voteCount++;
-    });
-
-    let voterCount = 0;
-    votersSnap.forEach((doc) => {
-      batch.delete(doc.ref);
-      voterCount++;
-    });
-
-    await batch.commit();
     return { deletedVotes: voteCount, deletedVoters: voterCount };
   } catch (error) {
     console.error('Error clearing votes from Firestore:', error);
+    throw error;
+  }
+}
+
+/**
+ * Clear all candidates from Firestore (candidates collection + nominations in users)
+ */
+export async function clearAllCandidates(): Promise<{ deletedCandidates: number }> {
+  try {
+    const candidatesSnap = await adminDb.collection('candidates').get();
+    const deletedCandidates = candidatesSnap.size;
+
+    for (let i = 0; i < candidatesSnap.docs.length; i += 400) {
+      const chunk = candidatesSnap.docs.slice(i, i + 400);
+      const batch = adminDb.batch();
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    // Also clear nominations from users collection
+    try {
+      const usersSnap = await adminDb.collection('users').get();
+      const usersWithNoms = usersSnap.docs.filter((d) => {
+        const u = d.data();
+        return Array.isArray(u?.nominations) && u.nominations.length > 0;
+      });
+
+      for (let i = 0; i < usersWithNoms.length; i += 400) {
+        const chunk = usersWithNoms.slice(i, i + 400);
+        const batch = adminDb.batch();
+        chunk.forEach((d) => batch.update(d.ref, { nominations: [] }));
+        await batch.commit();
+      }
+    } catch (usersErr) {
+      console.warn('Note: Could not clear users nominations:', usersErr);
+    }
+
+    return { deletedCandidates };
+  } catch (error) {
+    console.error('Error clearing candidates from Firestore:', error);
     throw error;
   }
 }
@@ -488,7 +600,7 @@ export async function getVotingResults(filterSemester?: string): Promise<{
       const postVotes = filteredVotes.filter((v) => v.postId === postId);
       const totalPostVotes = postVotes.length;
 
-      const seats = officialPostMeta?.seats ?? (postId.includes('coordinator') || postId === 'general_secretary' ? 2 : 1);
+      const seats = officialPostMeta?.seats ?? (postId.includes('coordinator') ? 2 : 1);
       const genderRule = officialPostMeta?.genderRule ?? (seats === 2 ? '1_boy_1_girl' : 'any');
 
       // Map candidate votes
