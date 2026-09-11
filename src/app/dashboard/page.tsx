@@ -10,7 +10,6 @@ import SMVITMLogo from "@/components/SMVITMLogo";
 import { 
   Loader2, 
   LogOut, 
-  Fingerprint, 
   Mail, 
   CheckCircle2, 
   Sparkles, 
@@ -153,12 +152,8 @@ export default function Dashboard() {
 
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-stone-500 font-normal">
                     <span className="flex items-center gap-1.5">
-                      <Fingerprint className="w-3.5 h-3.5 text-[#C59048]" />
-                      USN: <strong className="text-[#122147] font-mono font-semibold">{profile.usn}</strong>
-                    </span>
-                    <span className="flex items-center gap-1.5">
                       <Mail className="w-3.5 h-3.5 text-[#C59048]" />
-                      <span>{profile.email}</span>
+                      <span className="font-medium text-[#122147]">{profile.email}</span>
                     </span>
                   </div>
                 </div>
