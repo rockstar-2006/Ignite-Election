@@ -23,6 +23,7 @@ import {
   X,
   RefreshCw
 } from 'lucide-react';
+import { requestPortalFullscreen } from './AutoFullscreen';
 
 interface VotingBoothProps {
   semester: string;
@@ -259,6 +260,7 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
   };
 
   const handleOpenConfirmModal = () => {
+    requestPortalFullscreen();
     if (!isBallotComplete) {
       setError(`Please complete selections for all ${totalContestedPosts} positions before reviewing your ballot.`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -309,7 +311,19 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
       }
 
       setHasVoted(true);
-      setVotedAt(data.votedAt || new Date().toLocaleString('en-IN'));
+      setVotedAt(
+        data.votedAt ||
+          new Date().toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true,
+          })
+      );
       setConfirmModal(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
@@ -335,6 +349,28 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
   // STATE 1: ALREADY VOTED (Official Certificate)
   // ==========================================
   if (hasVoted) {
+    const formattedDisplayTime = (() => {
+      if (!votedAt) return 'Verified Time';
+      if (votedAt.includes('T') || votedAt.includes('Z') || /^\d{4}-\d{2}-\d{2}/.test(votedAt)) {
+        try {
+          const d = new Date(votedAt);
+          if (!isNaN(d.getTime())) {
+            return d.toLocaleString('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true,
+            });
+          }
+        } catch {}
+      }
+      return votedAt;
+    })();
+
     return (
       <div className="max-w-2xl mx-auto animate-fade-in font-outfit">
         <div className="bg-white border-2 border-[#C59048]/30 rounded-3xl p-8 sm:p-12 text-center shadow-xl shadow-[#122147]/5 relative overflow-hidden">
@@ -370,7 +406,7 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
               <span className="text-[#122147]/60 font-semibold">Time Recorded</span>
               <span className="font-mono font-bold text-[#122147] flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-[#C59048]" />
-                {votedAt || 'Verified Time'}
+                {formattedDisplayTime}
               </span>
             </div>
             <div className="flex items-center justify-between text-xs">

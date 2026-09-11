@@ -411,13 +411,31 @@ export async function clearAllCandidates(): Promise<{ deletedCandidates: number 
 export async function hasUserVoted(email: string): Promise<{ hasVoted: boolean; votedAt?: string }> {
   try {
     if (!email) return { hasVoted: false };
-    const docSnap = await adminDb.collection('voter_records').doc(email.toLowerCase().trim()).get();
+    const cleanEmail = email.toLowerCase().trim();
+    const docSnap = await adminDb.collection('voter_records').doc(cleanEmail).get();
     if (docSnap.exists) {
       const data = docSnap.data();
-      return {
-        hasVoted: true,
-        votedAt: data?.votedAtFormatted || data?.votedAt,
-      };
+      if (data?.hasVoted !== false) {
+        let displayTime = data?.votedAtFormatted;
+        if (data?.votedAt) {
+          try {
+            displayTime = new Date(data.votedAt).toLocaleString('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true,
+            });
+          } catch {}
+        }
+        return {
+          hasVoted: true,
+          votedAt: displayTime || data?.votedAtFormatted || 'Verified',
+        };
+      }
     }
     return { hasVoted: false };
   } catch (error) {
@@ -459,6 +477,7 @@ export async function submitBallot(
     const now = new Date();
     const isoTime = now.toISOString();
     const formattedTime = now.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -694,12 +713,31 @@ export async function getVotingResults(filterSemester?: string): Promise<{
         const payloadDisplay = (v.encryptedPayload || crypto.createHmac('sha256', BALLOT_ENCRYPTION_KEY).update(v.id).digest('hex')).substring(0, 16);
         const voterToken = crypto.createHash('md5').update(v.id + (v.timestamp || '')).digest('hex').substring(0, 8).toUpperCase();
 
+        let timeFormatted = '';
+        if (v.timestamp) {
+          try {
+            timeFormatted = new Date(v.timestamp).toLocaleString('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true,
+            });
+          } catch {}
+        }
+        if (!timeFormatted) {
+          timeFormatted = v.timestampFormatted || 'Recently';
+        }
+
         return {
           id: v.id,
           postName: v.postName,
           candidateName: 'CONFIDENTIAL',
           semester: v.semester,
-          timestampFormatted: v.timestampFormatted || new Date(v.timestamp).toLocaleString('en-IN'),
+          timestampFormatted: timeFormatted,
           encryptedBallotHash: `BALLOT#${hashDisplay}`,
           encryptedPayload: `ENC:${payloadDisplay}...`,
           anonymizedVoterToken: `VOTER#${voterToken}`,

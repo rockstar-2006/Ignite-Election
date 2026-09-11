@@ -15,10 +15,10 @@ import {
   Vote, 
   Award, 
   Users, 
-  Clock,
-  Download
+  Clock
 } from "lucide-react";
 import SMVITMLogo from "@/components/SMVITMLogo";
+import { requestPortalFullscreen } from "@/components/AutoFullscreen";
 
 function SignInContent() {
   const { user, loginWithGoogle, loading: authLoading } = useAuth();
@@ -88,6 +88,7 @@ function SignInContent() {
 
   const handleSignIn = async () => {
     try {
+      requestPortalFullscreen();
       setLoading(true);
       setError(null);
       await loginWithGoogle();
@@ -244,9 +245,7 @@ function SignInContent() {
           {/* Navigation Links & Buttons */}
           <div className="flex items-center gap-3 sm:gap-4">
             <nav className="hidden md:flex items-center gap-6 text-xs font-semibold text-[#122147]/70 mr-2">
-              <a href="#" className="text-[#7B1436] font-bold border-b-2 border-[#7B1436] pb-0.5">Home</a>
               <button onClick={scrollToGuidelines} className="hover:text-[#7B1436] transition cursor-pointer">Guidelines</button>
-              <a href="https://sode-edu.in/smvitm/" target="_blank" rel="noopener noreferrer" className="hover:text-[#7B1436] transition">About SMVITM</a>
             </nav>
 
             <button
@@ -554,17 +553,6 @@ function SignInContent() {
           <p className="text-[11px] text-[#122147]/50 max-w-2xl">
             Accredited by NAAC with &apos;A&apos; Grade • Affiliated to VTU Belagavi • Approved by AICTE, New Delhi
           </p>
-
-          <div className="flex items-center gap-4 text-xs text-stone-500 pt-1">
-            <a href="/install" className="hover:text-[#7B1436] flex items-center gap-1 font-medium">
-              <Download className="w-3.5 h-3.5 text-[#C59048]" />
-              <span>Install Voting App (PWA)</span>
-            </a>
-            <span>•</span>
-            <a href="/admin" className="hover:text-[#7B1436] font-medium">
-              Admin Portal
-            </a>
-          </div>
 
           <div className="pt-1 text-[10px] text-[#A37332] font-serif-elegant italic font-semibold">
             सर्वे भद्राणि पश्यन्तु — May all see auspiciousness
