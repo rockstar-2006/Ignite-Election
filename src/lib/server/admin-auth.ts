@@ -8,7 +8,7 @@ export interface AdminCredentials {
 
 const DEFAULT_ADMIN_EMAIL = 'admin@sode-edu.in';
 const DEFAULT_ADMIN_PASSWORD = 'Admin@123';
-const SESSION_TIMEOUT_MS = 60 * 1000; // 1 minute inactivity timeout
+const SESSION_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes inactivity timeout
 
 /**
  * Retrieve admin credentials from Firestore or initialize with defaults

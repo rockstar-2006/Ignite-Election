@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminStorage } from "@/lib/firebase-admin";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized: Please sign in to upload a candidate photo." }, { status: 401 });
+    }
+
     const { photo, email } = await request.json();
 
     if (!photo || !email) {
@@ -19,14 +26,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Decode base64 to buffer
-    const base64Data = photo.split(",")[1]; // Remove data:image/jpeg;base64, prefix
+    // Decode base64 to buffer safely
+    const base64Parts = photo.split(",");
+    const base64Data = base64Parts.length > 1 ? base64Parts[1] : base64Parts[0];
     const buffer = Buffer.from(base64Data, "base64");
 
-    // Check size
-    if (buffer.length > 5 * 1024 * 1024) {
+    // Enforce 3.5MB safety limit to prevent Vercel 4.5MB payload limit crashes
+    if (buffer.length > 3.5 * 1024 * 1024) {
       return NextResponse.json(
-        { error: "Photo is too large. Maximum is 5MB." },
+        { error: "Photo is too large. Maximum supported photo size is 3.5MB." },
         { status: 400 }
       );
     }
@@ -38,9 +46,8 @@ export async function POST(request: NextRequest) {
     const bucket = adminStorage.bucket();
     const file = bucket.file(filename);
 
-    // Upload to Firebase Storage using admin SDK
     console.log(`Uploading photo via admin SDK: ${filename}`);
-    
+
     await file.save(buffer, {
       metadata: {
         contentType: "image/jpeg",
@@ -48,17 +55,25 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Get signed URL (valid for 1 year)
-    const [url] = await file.getSignedUrl({
-      version: "v4",
-      action: "read",
-      expires: Date.now() + 365 * 24 * 60 * 60 * 1000, // 1 year
-    });
+    // Get signed URL with resilient fallback
+    let photoURL = '';
+    try {
+      const [signedUrl] = await file.getSignedUrl({
+        version: "v4",
+        action: "read",
+        expires: Date.now() + 365 * 24 * 60 * 60 * 1000, // 1 year
+      });
+      photoURL = signedUrl;
+    } catch (signErr) {
+      console.warn("Could not generate v4 signed URL, falling back to public storage URL:", signErr);
+      await file.makePublic().catch(() => {});
+      photoURL = `https://storage.googleapis.com/${bucket.name}/${filename}`;
+    }
 
     console.log("Photo uploaded successfully via admin SDK");
 
     return NextResponse.json(
-      { photoURL: url },
+      { photoURL },
       { status: 200 }
     );
   } catch (error: any) {

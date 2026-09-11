@@ -1,6 +1,15 @@
 import { adminDb } from '@/lib/firebase-admin';
 import { NextRequest, NextResponse } from 'next/server';
 
+interface CachedStats {
+  stats: Record<string, number>;
+  totalUsers: number;
+  expiresAt: number;
+}
+
+let cachedStats: CachedStats | null = null;
+const STATS_CACHE_TTL_MS = 120 * 1000; // 2 minutes
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -22,31 +31,58 @@ export async function GET(request: NextRequest) {
               src: '/api/logo',
               sizes: '192x192',
               type: 'image/png',
-              purpose: 'any maskable'
+              purpose: 'any maskable',
             },
             {
               src: '/api/logo',
               sizes: '512x512',
               type: 'image/png',
-              purpose: 'any maskable'
-            }
-          ]
+              purpose: 'any maskable',
+            },
+          ],
         },
         {
           headers: {
             'Content-Type': 'application/manifest+json',
-            'Cache-Control': 'public, max-age=86400, stale-while-revalidate=43200'
-          }
+            'Cache-Control': 'public, max-age=86400, stale-while-revalidate=43200',
+          },
         }
       );
     }
 
-    const q = adminDb.collection("users");
-    const snapshot = await q.get();
-    
+    const now = Date.now();
+    if (cachedStats && cachedStats.expiresAt > now) {
+      return NextResponse.json(
+        {
+          success: true,
+          stats: cachedStats.stats,
+          totalUsers: cachedStats.totalUsers,
+        },
+        {
+          headers: {
+            'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+          },
+        }
+      );
+    }
+
+    // Scalable query: Only query users who have nominations, instead of scanning every user in the college
+    let totalUsers = 0;
+    try {
+      const countSnap = await adminDb.collection('users').count().get();
+      totalUsers = countSnap.data().count;
+    } catch {
+      totalUsers = 0;
+    }
+
+    const nominatedUsersSnap = await adminDb
+      .collection('users')
+      .where('nominations', '!=', [])
+      .get();
+
     const stats: Record<string, number> = {};
-    
-    snapshot.forEach((doc) => {
+
+    nominatedUsersSnap.forEach((doc) => {
       const data = doc.data();
       if (data.nominations && Array.isArray(data.nominations)) {
         data.nominations.forEach((postId: string) => {
@@ -55,13 +91,26 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    return NextResponse.json({ 
-      success: true, 
+    cachedStats = {
       stats,
-      totalUsers: snapshot.size
-    });
+      totalUsers: totalUsers || nominatedUsersSnap.size,
+      expiresAt: now + STATS_CACHE_TTL_MS,
+    };
+
+    return NextResponse.json(
+      {
+        success: true,
+        stats,
+        totalUsers: cachedStats.totalUsers,
+      },
+      {
+        headers: {
+          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+        },
+      }
+    );
   } catch (error) {
-    console.error("API Stats error:", error);
+    console.error('API Stats error:', error);
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

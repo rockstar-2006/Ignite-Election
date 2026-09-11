@@ -55,7 +55,7 @@ export const env = {
 
   // Firebase Configuration
   firebaseProjectId: getEnvVar('FIREBASE_PROJECT_ID', serviceAccountData?.project_id || 'ignite-ai-7d7de'),
-  firebasePrivateKey: getEnvVar('FIREBASE_PRIVATE_KEY', serviceAccountData?.private_key),
+  firebasePrivateKey: getEnvVar('FIREBASE_PRIVATE_KEY', serviceAccountData?.private_key || ''),
   firebaseClientEmail: getEnvVar('FIREBASE_CLIENT_EMAIL', serviceAccountData?.client_email || 'firebase-adminsdk-fbsvc@ignite-ai-7d7de.iam.gserviceaccount.com'),
 
   // Public Firebase Config (safe for client-side)

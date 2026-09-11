@@ -1,4 +1,5 @@
 import { adminDb } from '../firebase-admin';
+import * as admin from 'firebase-admin';
 import { ELECTION_POSTS, OFFICIAL_COUNCIL_POSTS, OfficialPost } from '../constants';
 import crypto from 'crypto';
 
@@ -81,22 +82,54 @@ export interface ElectionStatus {
   updatedAt?: string;
 }
 
+// ============================================================================
+// IN-MEMORY CACHE TO PREVENT FIRESTORE READ AMPLIFICATION
+// ============================================================================
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+let candidateCache: CacheEntry<Candidate[]> | null = null;
+const CANDIDATE_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
+export function invalidateCandidateCache(): void {
+  candidateCache = null;
+}
+
+let electionStatusCache: CacheEntry<ElectionStatus> | null = null;
+const ELECTION_STATUS_CACHE_TTL_MS = 10 * 1000; // 10 seconds
+
+export function invalidateElectionStatusCache(): void {
+  electionStatusCache = null;
+}
+
 /**
- * Get current election publication and voting status
+ * Get current election publication and voting status (with in-memory caching)
  */
 export async function getElectionStatus(): Promise<ElectionStatus> {
+  const now = Date.now();
+  if (electionStatusCache && electionStatusCache.expiresAt > now) {
+    return electionStatusCache.data;
+  }
+
   try {
     const docSnap = await adminDb.collection('election_settings').doc('general').get();
+    let status: ElectionStatus = { isPublished: false, votingOpen: false };
     if (docSnap.exists) {
       const data = docSnap.data();
-      return {
+      status = {
         isPublished: data?.isPublished ?? false,
         votingOpen: data?.votingOpen ?? false,
         publishedAt: data?.publishedAt,
         updatedAt: data?.updatedAt,
       };
     }
-    return { isPublished: false, votingOpen: false };
+    electionStatusCache = {
+      data: status,
+      expiresAt: now + ELECTION_STATUS_CACHE_TTL_MS,
+    };
+    return status;
   } catch (error) {
     console.error('Error fetching election status:', error);
     return { isPublished: false, votingOpen: false };
@@ -116,6 +149,7 @@ export async function setElectionStatus(isPublished: boolean, votingOpen: boolea
       publishedAt: isPublished ? now : undefined,
     };
     await adminDb.collection('election_settings').doc('general').set(statusData, { merge: true });
+    invalidateElectionStatusCache();
     return statusData;
   } catch (error) {
     console.error('Error setting election status:', error);
@@ -124,10 +158,19 @@ export async function setElectionStatus(isPublished: boolean, votingOpen: boolea
 }
 
 /**
- * Retrieve authentic candidates from Firestore (candidates collection + users nominations)
- * Excludes legacy mock candidates.
+ * Retrieve authentic candidates from Firestore with in-memory caching.
+ * Excludes legacy dummy candidates without executing hazardous side-effect deletes during read requests.
  */
 export async function getCandidates(semester?: string): Promise<Candidate[]> {
+  const now = Date.now();
+  if (candidateCache && candidateCache.expiresAt > now) {
+    const cached = candidateCache.data;
+    if (semester) {
+      return cached.filter((c) => c.semester === semester || !c.semester);
+    }
+    return cached;
+  }
+
   try {
     const candidateMap = new Map<string, Candidate>();
 
@@ -136,9 +179,8 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
     const snapshot = await candidatesCollection.get();
 
     snapshot.forEach((doc) => {
-      // Exclude and purge legacy dummy seeded candidates (prefixed with cand_)
+      // Exclude legacy dummy seeded candidates
       if (doc.id.startsWith('cand_')) {
-        candidatesCollection.doc(doc.id).delete().catch(() => {});
         return;
       }
       const data = doc.data();
@@ -158,7 +200,7 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
       });
     });
 
-    // 2. Fetch from 'users' collection with nominations (if student submitted nomination via portal)
+    // 2. Fetch from 'users' collection with nominations
     try {
       const usersSnapshot = await adminDb.collection('users').where('nominations', '!=', []).get();
       usersSnapshot.forEach((doc) => {
@@ -194,13 +236,17 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
       console.warn('Note: Could not query users nominations query:', usersErr);
     }
 
-    let candidates = Array.from(candidateMap.values());
+    const allCandidates = Array.from(candidateMap.values());
+    candidateCache = {
+      data: allCandidates,
+      expiresAt: now + CANDIDATE_CACHE_TTL_MS,
+    };
 
     if (semester) {
-      candidates = candidates.filter((c) => c.semester === semester || !c.semester);
+      return allCandidates.filter((c) => c.semester === semester || !c.semester);
     }
 
-    return candidates;
+    return allCandidates;
   } catch (error) {
     console.error('Error fetching candidates from database:', error);
     return [];
@@ -243,6 +289,7 @@ export async function createCandidate(data: {
     };
 
     await docRef.set(newCandidate);
+    invalidateCandidateCache();
     return newCandidate;
   } catch (error) {
     console.error('Error creating candidate:', error);
@@ -257,6 +304,7 @@ export async function updateCandidate(id: string, updates: Partial<Candidate>): 
   try {
     const docRef = adminDb.collection('candidates').doc(id);
     await docRef.update(updates);
+    invalidateCandidateCache();
   } catch (error) {
     console.error('Error updating candidate:', error);
     throw error;
@@ -269,6 +317,7 @@ export async function updateCandidate(id: string, updates: Partial<Candidate>): 
 export async function deleteCandidate(id: string): Promise<void> {
   try {
     await adminDb.collection('candidates').doc(id).delete();
+    invalidateCandidateCache();
   } catch (error) {
     console.error('Error deleting candidate:', error);
     throw error;
@@ -276,32 +325,34 @@ export async function deleteCandidate(id: string): Promise<void> {
 }
 
 /**
- * Clear all votes and voter records from Firestore
+ * Clear all votes, voter records, and running tallies from Firestore safely using 450-op chunks
+ * Prevents Firestore's fatal 500-operation batch commit crash!
  */
 export async function clearAllVotes(): Promise<{ deletedVotes: number; deletedVoters: number }> {
   try {
     const votesSnap = await adminDb.collection('votes').get();
     const votersSnap = await adminDb.collection('voter_records').get();
+    const talliesSnap = await adminDb.collection('election_tallies').get();
 
-    if (votesSnap.empty && votersSnap.empty) {
+    const allRefs: admin.firestore.DocumentReference[] = [];
+    votesSnap.forEach((doc) => allRefs.push(doc.ref));
+    votersSnap.forEach((doc) => allRefs.push(doc.ref));
+    talliesSnap.forEach((doc) => allRefs.push(doc.ref));
+
+    if (allRefs.length === 0) {
       return { deletedVotes: 0, deletedVoters: 0 };
     }
 
-    const batch = adminDb.batch();
-    let voteCount = 0;
-    votesSnap.forEach((doc) => {
-      batch.delete(doc.ref);
-      voteCount++;
-    });
+    // Chunk into safe batches of max 450 operations
+    const CHUNK_SIZE = 450;
+    for (let i = 0; i < allRefs.length; i += CHUNK_SIZE) {
+      const chunk = allRefs.slice(i, i + CHUNK_SIZE);
+      const batch = adminDb.batch();
+      chunk.forEach((ref) => batch.delete(ref));
+      await batch.commit();
+    }
 
-    let voterCount = 0;
-    votersSnap.forEach((doc) => {
-      batch.delete(doc.ref);
-      voterCount++;
-    });
-
-    await batch.commit();
-    return { deletedVotes: voteCount, deletedVoters: voterCount };
+    return { deletedVotes: votesSnap.size, deletedVoters: votersSnap.size };
   } catch (error) {
     console.error('Error clearing votes from Firestore:', error);
     throw error;
@@ -330,10 +381,11 @@ export async function hasUserVoted(email: string): Promise<{ hasVoted: boolean; 
 }
 
 /**
- * Submit an official ballot
- * Enforces secret ballot: voter identity is recorded in voter_records to prevent duplicate voting,
- * while votes collection stores ONLY encrypted candidate selections with zero voter identity link.
- * Supports single-winner (1 selection) and 2-seat Boy/Girl selections!
+ * Submit an official ballot with ATOMIC TRANSACTION & PRE-AGGREGATED TALLIES
+ * 
+ * 1. Executes within adminDb.runTransaction() to eliminate TOCTOU double-voting race conditions.
+ * 2. Anonymizes timestamps: adds random second jitter to secret ballot records to decouple from voter records.
+ * 3. Atomically updates running candidate counters in 'election_tallies' using FieldValue.increment(1) for O(1) reads.
  */
 export async function submitBallot(
   voterEmail: string,
@@ -343,21 +395,31 @@ export async function submitBallot(
   try {
     const cleanEmail = voterEmail.toLowerCase().trim();
 
-    // 1. Check if election is open
+    // 1. Verify election status from cache
     const status = await getElectionStatus();
     if (!status.votingOpen) {
       throw new Error('Voting is currently closed by the Election Commission.');
     }
 
-    // 2. Check if user has already voted
-    const voterStatus = await hasUserVoted(cleanEmail);
-    if (voterStatus.hasVoted) {
-      throw new Error(`You have already voted on ${voterStatus.votedAt}. Each voter may only cast one ballot.`);
-    }
-
-    // 3. Validate selections against database candidates
+    // 2. Resolve candidates from cache (avoids redundant full database queries on every ballot)
     const candidates = await getCandidates();
     const candidateMap = new Map(candidates.map((c) => [c.id, c]));
+
+    // 3. Normalize selections
+    const normalizedVotes: { postId: string; candidateId: string }[] = [];
+    for (const [postId, candidateVal] of Object.entries(selections)) {
+      if (Array.isArray(candidateVal)) {
+        for (const cId of candidateVal) {
+          if (cId) normalizedVotes.push({ postId, candidateId: cId });
+        }
+      } else if (typeof candidateVal === 'string' && candidateVal) {
+        normalizedVotes.push({ postId, candidateId: candidateVal });
+      }
+    }
+
+    if (normalizedVotes.length === 0) {
+      throw new Error('No valid candidate selections found.');
+    }
 
     const now = new Date();
     const isoTime = now.toISOString();
@@ -371,60 +433,94 @@ export async function submitBallot(
       hour12: true,
     });
 
-    const batch = adminDb.batch();
-
-    // 4. Mark voter as voted with cryptographic voter hash in voter_records
-    const voterHash = hashVoterIdentifier(cleanEmail);
     const voterRef = adminDb.collection('voter_records').doc(cleanEmail);
-    batch.set(voterRef, {
-      voterHash,
-      email: cleanEmail,
-      semester,
-      hasVoted: true,
-      votedAt: isoTime,
-      votedAtFormatted: formattedTime,
-    });
+    const voterHash = hashVoterIdentifier(cleanEmail);
 
-    // 5. Flatten selections (single candidate ID or array of [boyId, girlId])
-    const normalizedVotes: { postId: string; candidateId: string }[] = [];
-    for (const [postId, candidateVal] of Object.entries(selections)) {
-      if (Array.isArray(candidateVal)) {
-        for (const cId of candidateVal) {
-          if (cId) normalizedVotes.push({ postId, candidateId: cId });
-        }
-      } else if (typeof candidateVal === 'string' && candidateVal) {
-        normalizedVotes.push({ postId, candidateId: candidateVal });
+    // 4. ATOMIC FIRESTORE TRANSACTION: Guaranteed single-vote per student & race-condition proof
+    await adminDb.runTransaction(async (transaction) => {
+      // Step A: Check if voter has already voted INSIDE the transaction lock
+      const voterDoc = await transaction.get(voterRef);
+      if (voterDoc.exists) {
+        const vData = voterDoc.data();
+        const prevTime = vData?.votedAtFormatted || vData?.votedAt || 'earlier';
+        throw new Error(`You have already voted on ${prevTime}. Each voter may only cast one ballot.`);
       }
-    }
 
-    // 6. Save each vote with cryptographic encryption in the votes collection
-    for (const { postId, candidateId } of normalizedVotes) {
-      const candidate = candidateMap.get(candidateId);
-      const postName = candidate?.postName || postId;
-      const candidateName = candidate?.name || 'Nominee';
-      const candidateGender = candidate?.gender || 'Male';
+      // Step B: Mark voter as voted in voter_records
+      transaction.set(voterRef, {
+        voterHash,
+        email: cleanEmail,
+        semester,
+        hasVoted: true,
+        votedAt: isoTime,
+        votedAtFormatted: formattedTime,
+      });
 
-      const { ballotHash, encryptedPayload } = encryptBallotTransaction(candidateId, postId, isoTime);
+      // Step C: Record secret ballot votes with decoupled jittered timestamp
+      // Random jitter between 2 to 30 seconds breaks millisecond correlation with voter_records
+      const jitterMs = Math.floor(Math.random() * 28000) + 2000;
+      const ballotDate = new Date(now.getTime() - jitterMs);
+      const ballotIsoTime = ballotDate.toISOString();
+      const ballotFormattedTime = ballotDate.toLocaleString('en-IN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+      });
 
-      const voteRef = adminDb.collection('votes').doc();
-      const voteData: VoteRecord = {
-        id: voteRef.id,
-        postId: postId,
-        postName: postName,
-        candidateId: candidateId,
-        candidateName: candidateName,
-        candidateGender: candidateGender,
-        semester: candidate?.semester || semester,
-        timestamp: isoTime,
-        timestampFormatted: formattedTime,
-        encryptedBallotHash: ballotHash,
-        encryptedPayload: encryptedPayload,
-      };
+      for (const { postId, candidateId } of normalizedVotes) {
+        const candidate = candidateMap.get(candidateId);
+        const postName = candidate?.postName || postId;
+        const candidateName = candidate?.name || 'Nominee';
+        const candidateGender = candidate?.gender || 'Male';
 
-      batch.set(voteRef, voteData);
-    }
+        const { ballotHash, encryptedPayload } = encryptBallotTransaction(candidateId, postId, ballotIsoTime);
 
-    await batch.commit();
+        const voteRef = adminDb.collection('votes').doc();
+        const voteData: VoteRecord = {
+          id: voteRef.id,
+          postId: postId,
+          postName: postName,
+          candidateId: candidateId,
+          candidateName: candidateName,
+          candidateGender: candidateGender,
+          semester: candidate?.semester || semester,
+          timestamp: ballotIsoTime,
+          timestampFormatted: ballotFormattedTime,
+          encryptedBallotHash: ballotHash,
+          encryptedPayload: encryptedPayload,
+        };
+        transaction.set(voteRef, voteData);
+
+        // Step D: Increment atomic pre-aggregated tally for this post and candidate
+        const tallyRef = adminDb.collection('election_tallies').doc(postId);
+        transaction.set(
+          tallyRef,
+          {
+            postId,
+            totalVotes: admin.firestore.FieldValue.increment(1),
+            [`candidateVotes.${candidateId}`]: admin.firestore.FieldValue.increment(1),
+            lastUpdated: isoTime,
+          },
+          { merge: true }
+        );
+      }
+
+      // Step E: Update running summary document
+      const summaryRef = adminDb.collection('election_tallies').doc('summary');
+      transaction.set(
+        summaryRef,
+        {
+          totalBallots: admin.firestore.FieldValue.increment(1),
+          totalVotes: admin.firestore.FieldValue.increment(normalizedVotes.length),
+          lastUpdated: isoTime,
+        },
+        { merge: true }
+      );
+    });
 
     return {
       success: true,
@@ -438,7 +534,8 @@ export async function submitBallot(
 }
 
 /**
- * Aggregate Live Results with 1-seat and 2-seat Boy/Girl Winner Logic
+ * Aggregate Live Results with Pre-Aggregated Tallies & 50-Item Audit Window
+ * Scales smoothly to tens of thousands of votes with O(1) aggregated reads!
  */
 export async function getVotingResults(filterSemester?: string): Promise<{
   totalVotes: number;
@@ -458,54 +555,85 @@ export async function getVotingResults(filterSemester?: string): Promise<{
 }> {
   try {
     const candidates = await getCandidates();
-    const votesSnapshot = await adminDb.collection('votes').get();
-    const voterRecordsSnapshot = await adminDb.collection('voter_records').get();
-
-    const votes: VoteRecord[] = [];
-    votesSnapshot.forEach((doc) => {
-      votes.push(doc.data() as VoteRecord);
-    });
-
     const filteredCandidates = filterSemester
       ? candidates.filter((c) => c.semester === filterSemester)
       : candidates;
 
-    const filteredVotes = filterSemester
-      ? votes.filter((v) => v.semester === filterSemester)
-      : votes;
+    // 1. Fetch pre-aggregated tallies
+    let talliesSnap = await adminDb.collection('election_tallies').get();
 
-    // Use OFFICIAL_COUNCIL_POSTS as primary order, plus any custom posts
+    // 2. Self-healing / backfill: if no tallies exist yet but votes exist in the collection
+    if (talliesSnap.empty) {
+      const votesCheck = await adminDb.collection('votes').limit(1).get();
+      if (!votesCheck.empty) {
+        await backfillElectionTallies();
+        talliesSnap = await adminDb.collection('election_tallies').get();
+      }
+    }
+
+    const talliesMap: Record<string, { totalVotes: number; candidateVotes: Record<string, number> }> = {};
+    let summaryTotalBallots = 0;
+    let summaryTotalVotes = 0;
+
+    talliesSnap.forEach((doc) => {
+      if (doc.id === 'summary') {
+        const d = doc.data();
+        summaryTotalBallots = d.totalBallots || 0;
+        summaryTotalVotes = d.totalVotes || 0;
+      } else {
+        const d = doc.data();
+        talliesMap[doc.id] = {
+          totalVotes: d.totalVotes || 0,
+          candidateVotes: d.candidateVotes || {},
+        };
+      }
+    });
+
+    // 3. Total Voters count: use summary or count() query
+    let totalVoters = summaryTotalBallots;
+    if (totalVoters === 0) {
+      try {
+        const countSnap = await adminDb.collection('voter_records').count().get();
+        totalVoters = countSnap.data().count;
+      } catch {
+        const snap = await adminDb.collection('voter_records').get();
+        totalVoters = snap.size;
+      }
+    }
+
+    // 4. Build post results using aggregated tallies
     const allKnownPostIds = new Set<string>();
     OFFICIAL_COUNCIL_POSTS.forEach((p) => allKnownPostIds.add(p.id));
     filteredCandidates.forEach((c) => allKnownPostIds.add(c.postId));
-    filteredVotes.forEach((v) => allKnownPostIds.add(v.postId));
+    Object.keys(talliesMap).forEach((pId) => allKnownPostIds.add(pId));
 
     const postResults: PostResult[] = [];
+    let calculatedTotalVotes = 0;
 
     for (const postId of Array.from(allKnownPostIds)) {
       const officialPostMeta = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === postId);
       const postCandidates = filteredCandidates.filter((c) => c.postId === postId);
-      const postVotes = filteredVotes.filter((v) => v.postId === postId);
-      const totalPostVotes = postVotes.length;
+      const tallyData = talliesMap[postId] || { totalVotes: 0, candidateVotes: {} };
+      const totalPostVotes = tallyData.totalVotes;
+      calculatedTotalVotes += totalPostVotes;
 
       const seats = officialPostMeta?.seats ?? (postId.includes('coordinator') || postId === 'general_secretary' ? 2 : 1);
       const genderRule = officialPostMeta?.genderRule ?? (seats === 2 ? '1_boy_1_girl' : 'any');
 
-      // Map candidate votes
+      // Candidate IDs
       const candidateIdsInPost = new Set<string>();
       postCandidates.forEach((c) => candidateIdsInPost.add(c.id));
-      postVotes.forEach((v) => candidateIdsInPost.add(v.candidateId));
+      Object.keys(tallyData.candidateVotes).forEach((cId) => candidateIdsInPost.add(cId));
 
       const candidatesTally = Array.from(candidateIdsInPost).map((cId) => {
         const candObj = postCandidates.find((c) => c.id === cId);
-        const sampleVote = postVotes.find((v) => v.candidateId === cId);
-        const candName = candObj?.name || sampleVote?.candidateName || 'Nominee';
+        const candName = candObj?.name || 'Nominee';
         const candDept = candObj?.department || '';
         const candUsn = candObj?.usn || '';
-        const candGender: 'Male' | 'Female' = candObj?.gender || sampleVote?.candidateGender || 'Male';
+        const candGender: 'Male' | 'Female' = candObj?.gender || 'Male';
         const candPhoto = candObj?.photoURL || '';
 
-        const count = postVotes.filter((v) => v.candidateId === cId).length;
+        const count = tallyData.candidateVotes[cId] || 0;
         const percentage = totalPostVotes > 0 ? Math.round((count / totalPostVotes) * 100) : 0;
 
         return {
@@ -535,7 +663,6 @@ export async function getVotingResults(filterSemester?: string): Promise<{
 
       // Determine winners according to post seat rules
       if (seats === 2 && genderRule === '1_boy_1_girl') {
-        // 1 Boy Winner + 1 Girl Winner
         const leadingBoy = candidatesTally.find((c) => c.gender === 'Male' && c.votes > 0);
         const leadingGirl = candidatesTally.find((c) => c.gender === 'Female' && c.votes > 0);
 
@@ -563,7 +690,6 @@ export async function getVotingResults(filterSemester?: string): Promise<{
           });
         }
       } else {
-        // Single Winner (e.g. President, Vice-President)
         if (candidatesTally.length > 0 && candidatesTally[0].votes > 0) {
           candidatesTally[0].isLeading = true;
           candidatesTally[0].winnerCategory = 'Winner';
@@ -591,20 +717,26 @@ export async function getVotingResults(filterSemester?: string): Promise<{
       });
     }
 
-    // Chronological Secret Ballot Time Audit Log
-    const recentTimeLogs = votes
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 50)
-      .map((v) => {
-        const hashDisplay = (v.encryptedBallotHash || crypto.createHash('sha256').update(v.id).digest('hex')).substring(0, 16).toUpperCase();
-        const payloadDisplay = (v.encryptedPayload || crypto.createHmac('sha256', BALLOT_ENCRYPTION_KEY).update(v.id).digest('hex')).substring(0, 16);
-        const voterToken = crypto.createHash('md5').update(v.id + (v.timestamp || '')).digest('hex').substring(0, 8).toUpperCase();
+    // 5. Recent 50 audit logs: Fetch ONLY the top 50 rows instead of downloading the whole table!
+    let recentTimeLogs: any[] = [];
+    try {
+      const recentSnap = await adminDb
+        .collection('votes')
+        .orderBy('timestamp', 'desc')
+        .limit(50)
+        .get();
+
+      recentTimeLogs = recentSnap.docs.map((doc) => {
+        const v = doc.data() as VoteRecord;
+        const hashDisplay = (v.encryptedBallotHash || crypto.createHash('sha256').update(doc.id).digest('hex')).substring(0, 16).toUpperCase();
+        const payloadDisplay = (v.encryptedPayload || crypto.createHmac('sha256', BALLOT_ENCRYPTION_KEY).update(doc.id).digest('hex')).substring(0, 16);
+        const voterToken = crypto.createHash('md5').update(doc.id + (v.timestamp || '')).digest('hex').substring(0, 8).toUpperCase();
 
         return {
-          id: v.id,
-          postName: v.postName,
+          id: doc.id,
+          postName: v.postName || v.postId,
           candidateName: 'CONFIDENTIAL',
-          semester: v.semester,
+          semester: v.semester || '6th',
           timestampFormatted: v.timestampFormatted || new Date(v.timestamp).toLocaleString('en-IN'),
           encryptedBallotHash: `BALLOT#${hashDisplay}`,
           encryptedPayload: `ENC:${payloadDisplay}...`,
@@ -612,15 +744,70 @@ export async function getVotingResults(filterSemester?: string): Promise<{
           status: 'Cryptographically Sealed & Encrypted',
         };
       });
+    } catch (logErr) {
+      console.warn('Note: Could not query ordered recent audit logs:', logErr);
+    }
 
     return {
-      totalVotes: votes.length,
-      totalVoters: voterRecordsSnapshot.size,
+      totalVotes: summaryTotalVotes || calculatedTotalVotes,
+      totalVoters,
       postResults,
       recentTimeLogs,
     };
   } catch (error) {
     console.error('Error computing voting results:', error);
     throw error;
+  }
+}
+
+/**
+ * Helper: One-time backfill of election_tallies if database has existing votes
+ */
+async function backfillElectionTallies(): Promise<void> {
+  try {
+    const votesSnap = await adminDb.collection('votes').get();
+    const votersSnap = await adminDb.collection('voter_records').get();
+
+    if (votesSnap.empty) return;
+
+    const postTallies: Record<string, { totalVotes: number; candidateVotes: Record<string, number> }> = {};
+
+    votesSnap.forEach((doc) => {
+      const v = doc.data();
+      const pId = v.postId;
+      const cId = v.candidateId;
+      if (!pId) return;
+
+      if (!postTallies[pId]) {
+        postTallies[pId] = { totalVotes: 0, candidateVotes: {} };
+      }
+      postTallies[pId].totalVotes++;
+      if (cId) {
+        postTallies[pId].candidateVotes[cId] = (postTallies[pId].candidateVotes[cId] || 0) + 1;
+      }
+    });
+
+    const batch = adminDb.batch();
+    for (const [postId, tally] of Object.entries(postTallies)) {
+      const ref = adminDb.collection('election_tallies').doc(postId);
+      batch.set(ref, {
+        postId,
+        totalVotes: tally.totalVotes,
+        candidateVotes: tally.candidateVotes,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    const summaryRef = adminDb.collection('election_tallies').doc('summary');
+    batch.set(summaryRef, {
+      totalBallots: votersSnap.size,
+      totalVotes: votesSnap.size,
+      lastUpdated: new Date().toISOString(),
+    });
+
+    await batch.commit();
+    console.log('✅ Successfully backfilled election_tallies collection.');
+  } catch (err) {
+    console.error('Failed to backfill election tallies:', err);
   }
 }

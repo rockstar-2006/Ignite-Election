@@ -1,5 +1,3 @@
-import { db } from "./firebase";
-
 export interface UserProfile {
   uid: string;
   firstName: string;

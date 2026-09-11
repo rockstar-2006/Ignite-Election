@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { clearAllVotes } from '@/lib/server/voting';
+import { getActiveAdminSession } from '@/lib/server/admin-auth';
 
 export async function POST(request: NextRequest) {
   try {
+    const activeSession = await getActiveAdminSession();
+    if (!activeSession.isActive) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Valid Election Commission admin session required.' },
+        { status: 401 }
+      );
+    }
+
     const result = await clearAllVotes();
     return NextResponse.json({
       success: true,

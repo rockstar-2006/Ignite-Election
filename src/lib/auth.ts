@@ -4,9 +4,8 @@ import { ADMIN_EMAILS, parseSemesterFromEmail } from "./constants";
 import { env } from "./env";
 
 if (!env.googleClientId || !env.googleClientSecret) {
-  throw new Error(
-    'Google OAuth credentials are not configured. ' +
-    'Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your .env.local file.'
+  console.warn(
+    '⚠️ [AUTH WARNING] GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not configured in environment.'
   );
 }
 
@@ -24,8 +23,8 @@ if (
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
-      clientId: env.googleClientId,
-      clientSecret: env.googleClientSecret,
+      clientId: env.googleClientId || 'dummy-google-client-id',
+      clientSecret: env.googleClientSecret || 'dummy-google-client-secret',
       allowDangerousEmailAccountLinking: true,
     }),
   ],
@@ -60,7 +59,7 @@ export const authOptions: NextAuthOptions = {
     error: '/auth/signin',
   },
   secret: env.nextAuthSecret,
-  debug: true,
+  debug: process.env.NODE_ENV === 'development',
   logger: {
     error(code, metadata) {
       console.error(`❌ [NextAuth Error] [${code}]:`, metadata);

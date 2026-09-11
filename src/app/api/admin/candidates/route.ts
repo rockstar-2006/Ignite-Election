@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCandidates, createCandidate, updateCandidate, deleteCandidate } from '@/lib/server/voting';
+import { getActiveAdminSession } from '@/lib/server/admin-auth';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,6 +14,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const activeSession = await getActiveAdminSession();
+    if (!activeSession.isActive) {
+      return NextResponse.json({ error: 'Unauthorized: Admin session required.' }, { status: 401 });
+    }
+
     const body = await request.json();
     const { name, usn, postId, postName, year, semester, department, gender, photoURL, manifesto } = body;
 
@@ -42,6 +48,11 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const activeSession = await getActiveAdminSession();
+    if (!activeSession.isActive) {
+      return NextResponse.json({ error: 'Unauthorized: Admin session required.' }, { status: 401 });
+    }
+
     const body = await request.json();
     const { id, updates } = body;
 
@@ -59,6 +70,11 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const activeSession = await getActiveAdminSession();
+    if (!activeSession.isActive) {
+      return NextResponse.json({ error: 'Unauthorized: Admin session required.' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 

@@ -22,12 +22,29 @@ export const ELECTION_POSTS = {
 } as const;
 
 export function parseSemesterFromEmail(email: string): string | null {
+  if (!email) return null;
   const prefix = email.split('@')[0].toLowerCase();
   
-  // Format: name.23ad... or 23ad...
-  if (prefix.includes('23ad')) return '6th';
-  if (prefix.includes('12ad')) return '6th'; // Support other patterns if they exist
-  if (prefix.includes('24ad')) return '4th';
+  // Format patterns:
+  // 1. 2023 batch -> 6th Semester (e.g. name.23cs045, 23ad001, 4mw23ec010, 12ad)
+  if (/(?:^|\.|4mw)23[a-z]{2}/i.test(prefix) || prefix.includes('23ad') || prefix.includes('12ad')) {
+    return '6th';
+  }
+  
+  // 2. 2024 batch -> 4th Semester (e.g. name.24cs045, 24ad001, 4mw24ec010)
+  if (/(?:^|\.|4mw)24[a-z]{2}/i.test(prefix) || prefix.includes('24ad')) {
+    return '4th';
+  }
+
+  // 3. 2022 batch -> 8th Semester (if participating)
+  if (/(?:^|\.|4mw)22[a-z]{2}/i.test(prefix)) {
+    return '8th';
+  }
+
+  // 4. 2025 batch -> 2nd Semester (if participating)
+  if (/(?:^|\.|4mw)25[a-z]{2}/i.test(prefix)) {
+    return '2nd';
+  }
   
   return null;
 }

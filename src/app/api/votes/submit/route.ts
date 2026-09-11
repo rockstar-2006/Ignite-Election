@@ -8,13 +8,13 @@ export async function POST(request: NextRequest) {
     const session = await getServerSession(authOptions);
     const body = await request.json();
 
-    const email = session?.user?.email || body.email;
+    const email = session?.user?.email;
     const semester = body.semester || '6th';
     const selections = body.selections;
 
     if (!email) {
       return NextResponse.json(
-        { error: 'Unauthorized: Voter email is required to cast a ballot.' },
+        { error: 'Unauthorized: You must be signed in with your official @sode-edu.in account to cast a ballot.' },
         { status: 401 }
       );
     }

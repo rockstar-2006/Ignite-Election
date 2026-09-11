@@ -2,20 +2,23 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function proxy(request: NextRequest) {
-  const sessionToken = request.cookies.get('next-auth.session-token')?.value || 
-                       request.cookies.get('__Secure-next-auth.session-token')?.value;
+  const sessionToken =
+    request.cookies.get('next-auth.session-token')?.value ||
+    request.cookies.get('__Secure-next-auth.session-token')?.value;
+
   const { pathname } = request.nextUrl;
 
   // Routes that do NOT require student NextAuth authentication
-  const isPublicRoute = 
-    pathname === '/' || 
-    pathname === '/auth/signin' || 
+  const isPublicRoute =
+    pathname === '/' ||
+    pathname === '/auth/signin' ||
     pathname.startsWith('/admin') ||
     pathname.startsWith('/api/admin') ||
     pathname.startsWith('/api/votes/results') ||
     pathname.startsWith('/api/candidates') ||
     pathname.startsWith('/api/logo') ||
     pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api/election-status') ||
     pathname === '/manifest.json' ||
     pathname === '/sw.js';
 
@@ -35,7 +38,6 @@ export function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
-// See "Matching Paths" below to learn more
 export const config = {
   matcher: [
     /*
