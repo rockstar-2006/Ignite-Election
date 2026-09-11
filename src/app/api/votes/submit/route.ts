@@ -3,13 +3,16 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { submitBallot } from '@/lib/server/voting';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     const body = await request.json();
 
-    const email = session?.user?.email || body.email;
-    const semester = body.semester || '6th';
+    const email = (session?.user?.email || body.email || '').toLowerCase().trim();
+    const semester = body.semester || 'College-Wide';
     const selections = body.selections;
 
     if (!email) {

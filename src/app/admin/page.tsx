@@ -276,14 +276,29 @@ export default function AdminPage() {
     }
   }, [isAdminLoggedIn, semesterFilter]);
 
-  const fetchResults = async () => {
-    setResultsLoading(true);
+  // Live auto-polling for election results every 3 seconds while logged in
+  useEffect(() => {
+    if (!isAdminLoggedIn) return;
+    const interval = setInterval(() => {
+      fetchResults(true);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isAdminLoggedIn, semesterFilter]);
+
+  const fetchResults = async (silent = false) => {
+    if (!silent) setResultsLoading(true);
     try {
       const url = semesterFilter === 'all' 
-        ? '/api/votes/results' 
-        : `/api/votes/results?semester=${semesterFilter}`;
+        ? `/api/votes/results?t=${Date.now()}` 
+        : `/api/votes/results?semester=${semesterFilter}&t=${Date.now()}`;
 
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Pragma': 'no-cache',
+        },
+      });
       if (res.ok) {
         const data = await res.json();
         setPostResults(data.postResults || []);
@@ -294,7 +309,7 @@ export default function AdminPage() {
     } catch (err) {
       console.error('Error fetching results:', err);
     } finally {
-      setResultsLoading(false);
+      if (!silent) setResultsLoading(false);
     }
   };
 
@@ -699,7 +714,14 @@ export default function AdminPage() {
   const handleResetVotes = async () => {
     setResettingVotes(true);
     try {
-      const res = await fetch('/api/admin/reset-votes', { method: 'POST' });
+      const res = await fetch(`/api/admin/reset-votes?t=${Date.now()}`, { 
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store, no-cache',
+          'Pragma': 'no-cache',
+        },
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reset votes');
 
@@ -1021,13 +1043,20 @@ export default function AdminPage() {
               Reset Candidates
             </button>
 
+            {/* Live Polling Badge */}
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-xl text-[11px] font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Live Updates</span>
+            </div>
+
             <button
               onClick={() => { fetchResults(); fetchCandidates(); }}
               disabled={resultsLoading || candidatesLoading}
-              className="p-2.5 bg-white hover:bg-slate-50 text-stone-700 rounded-xl border border-[#EAE3D9] shadow-xs cursor-pointer"
-              title="Refresh results and candidates"
+              className="px-3.5 py-2 bg-white hover:bg-slate-50 text-stone-700 rounded-xl border border-[#EAE3D9] shadow-xs cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+              title="Refresh results and candidates immediately"
             >
-              <RefreshCcw className={`w-4 h-4 ${resultsLoading || candidatesLoading ? 'animate-spin text-[#7B1436]' : ''}`} />
+              <RefreshCcw className={`w-3.5 h-3.5 ${resultsLoading || candidatesLoading ? 'animate-spin text-[#7B1436]' : ''}`} />
+              <span className="hidden md:inline">Refresh</span>
             </button>
           </div>
         </div>

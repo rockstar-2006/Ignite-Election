@@ -361,11 +361,16 @@ export async function clearAllVotes(): Promise<{ deletedVotes: number; deletedVo
   try {
     const votesSnap = await adminDb.collection('votes').get();
     const votersSnap = await adminDb.collection('voter_records').get();
+    let legacyDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+    try {
+      const legacyVotersSnap = await adminDb.collection('voters').get();
+      legacyDocs = legacyVotersSnap.docs;
+    } catch {}
 
     const voteCount = votesSnap.size;
     const voterCount = votersSnap.size;
 
-    const allDocs = [...votesSnap.docs, ...votersSnap.docs];
+    const allDocs = [...votesSnap.docs, ...votersSnap.docs, ...legacyDocs];
     for (let i = 0; i < allDocs.length; i += 400) {
       const chunk = allDocs.slice(i, i + 400);
       const batch = adminDb.batch();
@@ -578,12 +583,14 @@ export async function getVotingResults(filterSemester?: string): Promise<{
       votes.push(doc.data() as VoteRecord);
     });
 
-    const filteredCandidates = filterSemester
-      ? candidates.filter((c) => c.semester === filterSemester)
+    const isFiltered = Boolean(filterSemester && filterSemester !== 'all' && filterSemester !== 'All');
+
+    const filteredCandidates = isFiltered
+      ? candidates.filter((c) => !c.semester || c.semester === 'College-Wide' || c.semester.toLowerCase() === filterSemester?.toLowerCase())
       : candidates;
 
-    const filteredVotes = filterSemester
-      ? votes.filter((v) => v.semester === filterSemester)
+    const filteredVotes = isFiltered
+      ? votes.filter((v) => !v.semester || v.semester === 'College-Wide' || v.semester.toLowerCase() === filterSemester?.toLowerCase())
       : votes;
 
     // Use OFFICIAL_COUNCIL_POSTS as primary order, plus any custom posts

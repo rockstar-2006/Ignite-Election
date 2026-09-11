@@ -95,24 +95,38 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
     setError(null);
     try {
       // 1. Check voting status of current student
-      const statusRes = await fetch('/api/votes/status');
+      const statusUrl = email 
+        ? `/api/votes/status?email=${encodeURIComponent(email)}&t=${Date.now()}`
+        : `/api/votes/status?t=${Date.now()}`;
+      const statusRes = await fetch(statusUrl, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Pragma': 'no-cache',
+        },
+      });
       if (statusRes.ok) {
         const statusData = await statusRes.json();
-        if (statusData.hasVoted) {
-          setHasVoted(true);
-          setVotedAt(statusData.votedAt);
-        }
+        setHasVoted(Boolean(statusData.hasVoted));
+        setVotedAt(statusData.hasVoted ? statusData.votedAt : null);
+      } else {
+        setHasVoted(false);
+        setVotedAt(null);
       }
 
       // 2. Fetch election commission publication & voting open status
-      const electionRes = await fetch('/api/election-status');
+      const electionRes = await fetch(`/api/election-status?t=${Date.now()}`, {
+        cache: 'no-store',
+      });
       if (electionRes.ok) {
         const electData = await electionRes.json();
         setElectionStatus(electData.status || { isPublished: false, votingOpen: false });
       }
 
       // 3. Load official candidates from database
-      const candRes = await fetch('/api/candidates');
+      const candRes = await fetch(`/api/candidates?t=${Date.now()}`, {
+        cache: 'no-store',
+      });
       if (candRes.ok) {
         const candData = await candRes.json();
         const allCandidates: Candidate[] = candData.candidates || [];
@@ -271,6 +285,7 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          email: email || undefined,
           semester: semester || 'College-Wide',
           selections: selectionsPayload,
         }),

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVotingResults } from '@/lib/server/voting';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -9,10 +12,19 @@ export async function GET(request: NextRequest) {
     // Retrieve exclusively real voting data from Firestore
     const results = await getVotingResults(semester || undefined);
 
-    return NextResponse.json({
-      success: true,
-      ...results,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        ...results,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      }
+    );
   } catch (error: any) {
     console.error('Error fetching real vote results:', error);
     return NextResponse.json(
