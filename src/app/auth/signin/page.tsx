@@ -3,6 +3,7 @@
 import { useAuth } from "@/context/AuthContext";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState, useEffect } from "react";
+import Link from "next/link";
 import { 
   Loader2, 
   ShieldCheck, 
@@ -15,7 +16,8 @@ import {
   Vote, 
   Award, 
   Users, 
-  Clock
+  Clock,
+  Download
 } from "lucide-react";
 import SMVITMLogo from "@/components/SMVITMLogo";
 
@@ -554,7 +556,18 @@ function SignInContent() {
             Accredited by NAAC with &apos;A&apos; Grade • Affiliated to VTU Belagavi • Approved by AICTE, New Delhi
           </p>
 
-          <div className="pt-2 text-[10px] text-[#A37332] font-serif-elegant italic font-semibold">
+          <div className="flex items-center gap-4 text-xs text-stone-500 pt-1">
+            <Link href="/install" className="hover:text-[#7B1436] flex items-center gap-1 font-medium">
+              <Download className="w-3.5 h-3.5 text-[#C59048]" />
+              <span>Install Voting App (PWA)</span>
+            </Link>
+            <span>•</span>
+            <Link href="/admin" className="hover:text-[#7B1436] font-medium">
+              Admin Portal
+            </Link>
+          </div>
+
+          <div className="pt-1 text-[10px] text-[#A37332] font-serif-elegant italic font-semibold">
             सर्वे भद्राणि पश्यन्तु — May all see auspiciousness
           </div>
 

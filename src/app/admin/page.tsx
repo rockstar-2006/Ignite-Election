@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { PostResult, Candidate } from '@/lib/server/voting';
 import { OFFICIAL_COUNCIL_POSTS } from '@/lib/constants';
 import { downloadWinnersDocument } from '@/lib/export-report';
@@ -965,6 +966,17 @@ export default function AdminPage() {
                 <Radio className={`w-3.5 h-3.5 ${isBallotPublished ? 'text-emerald-600 animate-pulse' : 'text-stone-400'}`} />
                 <span>{isBallotPublished ? 'Voting Active (Click to Close)' : 'Voting Inactive (Click to Open)'}</span>
               </button>
+
+              {/* Install PWA App Link */}
+              <Link
+                href="/install"
+                target="_blank"
+                className="px-4 py-2.5 rounded-full text-xs font-outfit font-bold flex items-center gap-2 transition-all cursor-pointer shadow-2xs border bg-[#FAF3E8] text-[#A37332] border-[#E8D3B5] hover:bg-[#F5E6D0]"
+                title="Install PWA on voting tablets or view install instructions"
+              >
+                <Download className="w-3.5 h-3.5 text-[#C59048]" />
+                <span>PWA Download Page</span>
+              </Link>
             </div>
 
           </div>
