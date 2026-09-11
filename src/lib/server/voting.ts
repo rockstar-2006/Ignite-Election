@@ -145,21 +145,33 @@ export async function setElectionStatus(isPublished: boolean, votingOpen: boolea
 export async function getCandidates(semester?: string): Promise<Candidate[]> {
   try {
     const candidateMap = new Map<string, Candidate>();
+    const officialPostIds = new Set<string>(OFFICIAL_COUNCIL_POSTS.map((p) => p.id));
 
-    // 1. Fetch all candidates from 'candidates' collection in Firestore
+    // Fetch EXCLUSIVELY from official 'candidates' collection in Firestore
     const candidatesCollection = adminDb.collection('candidates');
     const snapshot = await candidatesCollection.get();
 
     snapshot.forEach((doc) => {
       const data = doc.data();
+      const postId = (data.postId || '').trim().toLowerCase();
+      
+      // Filter out any mock/rogue posts that are not in OFFICIAL_COUNCIL_POSTS
+      if (!officialPostIds.has(postId)) {
+        // Automatically prune invalid/mock candidate from database
+        doc.ref.delete().catch(() => {});
+        return;
+      }
+
+      const officialPost = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === postId);
+
       candidateMap.set(doc.id, {
         id: doc.id,
         name: data.name || 'Candidate',
         usn: data.usn || '',
         semester: data.semester || '6th',
         year: data.year || '3rd Year',
-        postId: data.postId || '',
-        postName: data.postName || data.postId || 'Position',
+        postId: postId,
+        postName: officialPost?.name || data.postName || postId,
         department: data.department || data.branch || '',
         gender: data.gender === 'Female' ? 'Female' : 'Male',
         photoURL: data.photoURL || '',
@@ -168,54 +180,10 @@ export async function getCandidates(semester?: string): Promise<Candidate[]> {
       });
     });
 
-    // 2. Fetch from 'users' collection with nominations (if student submitted nomination via portal)
-    try {
-      const usersSnapshot = await adminDb.collection('users').get();
-      usersSnapshot.forEach((doc) => {
-        const userData = doc.data();
-        if (!userData) return;
-        const userNominations = Array.isArray(userData.nominations)
-          ? userData.nominations
-          : typeof userData.nominations === 'string'
-          ? [userData.nominations]
-          : [];
-        
-        userNominations.forEach((postId: string) => {
-          if (!postId) return;
-          const candidateUniqueId = `${doc.id}_${postId}`;
-          if (!candidateMap.has(candidateUniqueId) && !candidateMap.has(doc.id)) {
-            const officialPost = OFFICIAL_COUNCIL_POSTS.find(
-              (p) => p.id === postId || p.id.toLowerCase() === postId.toLowerCase() || p.name.toLowerCase() === postId.toLowerCase()
-            );
-            const postName = officialPost?.name || postId;
-            const candSemester = userData.semester || '6th';
-            const gender: 'Male' | 'Female' = userData.gender === 'Female' ? 'Female' : 'Male';
-
-            candidateMap.set(candidateUniqueId, {
-              id: candidateUniqueId,
-              name: userData.name || userData.displayName || doc.id,
-              usn: userData.usn || '',
-              semester: candSemester,
-              year: userData.year || '3rd Year',
-              postId: officialPost ? officialPost.id : postId,
-              postName: postName,
-              department: userData.department || userData.branch || '',
-              gender: gender,
-              photoURL: userData.photoURL || userData.image || '',
-              manifesto: userData.manifesto || 'Dedicated to serving the student community of SMVITM.',
-              createdAt: userData.createdAt,
-            });
-          }
-        });
-      });
-    } catch (usersErr) {
-      console.warn('Note: Could not query users nominations:', usersErr);
-    }
-
     let candidates = Array.from(candidateMap.values());
 
-    if (semester) {
-      candidates = candidates.filter((c) => c.semester === semester || !c.semester);
+    if (semester && semester !== 'all' && semester !== 'College-Wide') {
+      candidates = candidates.filter((c) => c.semester === semester || c.semester === 'College-Wide' || !c.semester);
     }
 
     return candidates;
@@ -605,16 +573,11 @@ export async function getVotingResults(filterSemester?: string): Promise<{
       ? votes.filter((v) => !v.semester || v.semester === 'College-Wide' || v.semester.toLowerCase() === filterSemester?.toLowerCase())
       : votes;
 
-    // Use OFFICIAL_COUNCIL_POSTS as primary order, plus any custom posts
-    const allKnownPostIds = new Set<string>();
-    OFFICIAL_COUNCIL_POSTS.forEach((p) => allKnownPostIds.add(p.id));
-    filteredCandidates.forEach((c) => allKnownPostIds.add(c.postId));
-    filteredVotes.forEach((v) => allKnownPostIds.add(v.postId));
-
+    // Results are strictly calculated for OFFICIAL_COUNCIL_POSTS
     const postResults: PostResult[] = [];
 
-    for (const postId of Array.from(allKnownPostIds)) {
-      const officialPostMeta = OFFICIAL_COUNCIL_POSTS.find((p) => p.id === postId);
+    for (const officialPostMeta of OFFICIAL_COUNCIL_POSTS) {
+      const postId = officialPostMeta.id;
       const postCandidates = filteredCandidates.filter((c) => c.postId === postId);
       const postVotes = filteredVotes.filter((v) => v.postId === postId);
       const totalPostVotes = postVotes.length;

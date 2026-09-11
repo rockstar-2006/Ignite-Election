@@ -187,23 +187,6 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
     }
   });
 
-  // Also include any posts not in predefined list if present in candidate data
-  candidates.forEach((cand) => {
-    if (!postsMap[cand.postId]) {
-      postsMap[cand.postId] = {
-        postName: cand.postName || cand.postId,
-        postConfig: postConfigMap.get(cand.postId) || {
-          id: cand.postId,
-          name: cand.postName || cand.postId,
-          seats: 1,
-          genderRule: 'any',
-        },
-        candidates: [],
-      };
-      postsMap[cand.postId].candidates.push(cand);
-    }
-  });
-
   const totalContestedPosts = Object.keys(postsMap).length;
 
   // Validate completion status

@@ -276,11 +276,12 @@ export default function AdminPage() {
     }
   }, [isAdminLoggedIn, semesterFilter]);
 
-  // Live auto-polling for election results every 3 seconds while logged in
+  // Live auto-polling for election results and election status every 3 seconds while logged in
   useEffect(() => {
     if (!isAdminLoggedIn) return;
     const interval = setInterval(() => {
       fetchResults(true);
+      fetchElectionStatus();
     }, 3000);
     return () => clearInterval(interval);
   }, [isAdminLoggedIn, semesterFilter]);
