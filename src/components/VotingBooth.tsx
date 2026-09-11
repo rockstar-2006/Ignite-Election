@@ -20,7 +20,8 @@ import {
   Users,
   AlertTriangle,
   LogOut,
-  X
+  X,
+  RefreshCw
 } from 'lucide-react';
 
 interface VotingBoothProps {
@@ -86,13 +87,27 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
     };
   }, [hasVoted, onVoteSuccess]);
 
+  // Initial load
   useEffect(() => {
-    loadVotingData();
+    loadVotingData(false);
   }, [email, semester]);
 
-  const loadVotingData = async () => {
-    setLoading(true);
-    setError(null);
+  // CONTINUOUS REAL-TIME POLLING (Every 2.5 seconds):
+  // Polls server for voting status (in case admin cleared votes or reset voter),
+  // election status (in case admin opened/closed voting), and candidates list.
+  // Uses silent=true to avoid flashing the full-page loader.
+  useEffect(() => {
+    const pollTimer = setInterval(() => {
+      loadVotingData(true);
+    }, 2500);
+    return () => clearInterval(pollTimer);
+  }, [email, semester]);
+
+  const loadVotingData = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       // 1. Check voting status of current student
       const statusUrl = email 
@@ -107,8 +122,9 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
       });
       if (statusRes.ok) {
         const statusData = await statusRes.json();
-        setHasVoted(Boolean(statusData.hasVoted));
-        setVotedAt(statusData.hasVoted ? statusData.votedAt : null);
+        const serverHasVoted = Boolean(statusData.hasVoted);
+        setHasVoted(serverHasVoted);
+        setVotedAt(serverHasVoted ? statusData.votedAt : null);
       } else {
         setHasVoted(false);
         setVotedAt(null);
@@ -117,6 +133,10 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
       // 2. Fetch election commission publication & voting open status
       const electionRes = await fetch(`/api/election-status?t=${Date.now()}`, {
         cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store, no-cache',
+          'Pragma': 'no-cache',
+        },
       });
       if (electionRes.ok) {
         const electData = await electionRes.json();
@@ -126,6 +146,10 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
       // 3. Load official candidates from database
       const candRes = await fetch(`/api/candidates?t=${Date.now()}`, {
         cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-store, no-cache',
+          'Pragma': 'no-cache',
+        },
       });
       if (candRes.ok) {
         const candData = await candRes.json();
@@ -133,10 +157,14 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
         setCandidates(allCandidates);
       }
     } catch (err: any) {
-      console.error('Error loading voting booth data:', err);
-      setError('Failed to load election candidates. Please refresh the page.');
+      if (!silent) {
+        console.error('Error loading voting booth data:', err);
+        setError('Failed to load election candidates. Please refresh the page.');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -372,6 +400,24 @@ export default function VotingBooth({ semester, email, onVoteSuccess }: VotingBo
 
           <div className="text-[11px] text-[#122147]/60 font-medium">
             Each student can submit their vote only once.
+          </div>
+
+          {/* Real-time Status Sync & Refresh Action */}
+          <div className="flex flex-wrap items-center justify-center gap-3 mt-4">
+            <button
+              onClick={() => loadVotingData(false)}
+              disabled={loading}
+              className="px-4 py-2 rounded-full bg-white hover:bg-stone-50 border border-[#EAE3D9] text-[#122147] text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
+              title="Check if admin has cleared votes"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-[#C59048] ${loading ? 'animate-spin' : ''}`} />
+              <span>Check Ballot Status</span>
+            </button>
+
+            <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-3 py-1 rounded-full font-semibold flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Live Sync Active
+            </span>
           </div>
 
           {/* Auto Logout Card for Next Student */}

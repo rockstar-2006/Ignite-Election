@@ -361,24 +361,36 @@ export async function clearAllVotes(): Promise<{ deletedVotes: number; deletedVo
   try {
     const votesSnap = await adminDb.collection('votes').get();
     const votersSnap = await adminDb.collection('voter_records').get();
-    let legacyDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+
+    const refsToDelete = new Map<string, FirebaseFirestore.DocumentReference>();
+    
+    votesSnap.docs.forEach((d) => refsToDelete.set(`votes/${d.id}`, d.ref));
+    votersSnap.docs.forEach((d) => refsToDelete.set(`voter_records/${d.id}`, d.ref));
+
     try {
-      const legacyVotersSnap = await adminDb.collection('voters').get();
-      legacyDocs = legacyVotersSnap.docs;
+      const listedVotes = await adminDb.collection('votes').listDocuments();
+      listedVotes.forEach((r) => refsToDelete.set(`votes/${r.id}`, r));
     } catch {}
 
-    const voteCount = votesSnap.size;
-    const voterCount = votersSnap.size;
+    try {
+      const listedVoters = await adminDb.collection('voter_records').listDocuments();
+      listedVoters.forEach((r) => refsToDelete.set(`voter_records/${r.id}`, r));
+    } catch {}
 
-    const allDocs = [...votesSnap.docs, ...votersSnap.docs, ...legacyDocs];
-    for (let i = 0; i < allDocs.length; i += 400) {
-      const chunk = allDocs.slice(i, i + 400);
+    try {
+      const legacyVoters = await adminDb.collection('voters').listDocuments();
+      legacyVoters.forEach((r) => refsToDelete.set(`voters/${r.id}`, r));
+    } catch {}
+
+    const allRefs = Array.from(refsToDelete.values());
+    for (let i = 0; i < allRefs.length; i += 400) {
+      const chunk = allRefs.slice(i, i + 400);
       const batch = adminDb.batch();
-      chunk.forEach((d) => batch.delete(d.ref));
+      chunk.forEach((ref) => batch.delete(ref));
       await batch.commit();
     }
 
-    return { deletedVotes: voteCount, deletedVoters: voterCount };
+    return { deletedVotes: votesSnap.size, deletedVoters: votersSnap.size };
   } catch (error) {
     console.error('Error clearing votes from Firestore:', error);
     throw error;

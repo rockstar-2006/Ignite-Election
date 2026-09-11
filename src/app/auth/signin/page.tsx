@@ -3,7 +3,6 @@
 import { useAuth } from "@/context/AuthContext";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState, useEffect } from "react";
-import Link from "next/link";
 import { 
   Loader2, 
   ShieldCheck, 
@@ -557,14 +556,14 @@ function SignInContent() {
           </p>
 
           <div className="flex items-center gap-4 text-xs text-stone-500 pt-1">
-            <Link href="/install" className="hover:text-[#7B1436] flex items-center gap-1 font-medium">
+            <a href="/install" className="hover:text-[#7B1436] flex items-center gap-1 font-medium">
               <Download className="w-3.5 h-3.5 text-[#C59048]" />
               <span>Install Voting App (PWA)</span>
-            </Link>
+            </a>
             <span>•</span>
-            <Link href="/admin" className="hover:text-[#7B1436] font-medium">
+            <a href="/admin" className="hover:text-[#7B1436] font-medium">
               Admin Portal
-            </Link>
+            </a>
           </div>
 
           <div className="pt-1 text-[10px] text-[#A37332] font-serif-elegant italic font-semibold">

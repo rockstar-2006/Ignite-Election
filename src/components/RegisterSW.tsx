@@ -8,6 +8,7 @@ export function RegisterSW() {
       navigator.serviceWorker
         .register('/sw.js', { scope: '/' })
         .then((reg) => {
+          reg.update().catch(() => {});
           // Check for updates periodically
           setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
         })
