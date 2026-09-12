@@ -269,23 +269,13 @@ export default function AdminPage() {
     }
   }, [isAdminLoggedIn, sessionId]);
 
-  // Load results and candidates
+  // Load results and candidates on login or semester filter change
   useEffect(() => {
     if (isAdminLoggedIn) {
       fetchResults();
       fetchCandidates();
       fetchElectionStatus();
     }
-  }, [isAdminLoggedIn, semesterFilter]);
-
-  // Live auto-polling for election results and election status every 3 seconds while logged in
-  useEffect(() => {
-    if (!isAdminLoggedIn) return;
-    const interval = setInterval(() => {
-      fetchResults(true);
-      fetchElectionStatus();
-    }, 3000);
-    return () => clearInterval(interval);
   }, [isAdminLoggedIn, semesterFilter]);
 
   const fetchResults = async (silent = false) => {
@@ -647,7 +637,7 @@ export default function AdminPage() {
       if (!res.ok) {
         if (data.inUse || res.status === 409) {
           setIsSessionLocked(true);
-          throw new Error('The Admin Portal is currently in use by someone else. Only one administrator may be logged in at a time.');
+          throw new Error(data.error || 'The Admin Portal is currently at capacity (maximum 2 administrators logged in at a time).');
         }
         throw new Error(data.error || 'Invalid admin credentials');
       }
@@ -725,9 +715,11 @@ export default function AdminPage() {
         method: 'POST',
         cache: 'no-store',
         headers: {
+          'Content-Type': 'application/json',
           'Cache-Control': 'no-store, no-cache',
           'Pragma': 'no-cache',
         },
+        body: JSON.stringify({ sessionId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reset votes');
@@ -752,7 +744,7 @@ export default function AdminPage() {
       setResetVotesModalOpen(false);
       setResetVotesConfirmed(false);
       setSeedNotice(data.message || 'All recorded votes and ballots have been successfully cleared from database and frontend.');
-      fetchResults();
+      await fetchResults();
     } catch (err: any) {
       alert(err.message || 'Error resetting votes.');
     } finally {
@@ -816,7 +808,7 @@ export default function AdminPage() {
                 Administrator Login
               </h2>
               <p className="text-xs text-stone-500 mt-1">
-                Authorized Personnel Only • Single Session Lock
+                Authorized Personnel Only • Max 2 Active Sessions
               </p>
             </div>
 
@@ -824,10 +816,10 @@ export default function AdminPage() {
               <div className="mb-6 p-4 bg-[#FDF2F4] border border-[#F0C4CE] rounded-2xl text-xs text-[#7B1436] space-y-2">
                 <div className="flex items-center gap-2 font-bold">
                   <AlertCircle className="w-4 h-4 text-[#7B1436]" />
-                  <span>Portal Already in Use</span>
+                  <span>Portal Session Limit Reached</span>
                 </div>
                 <p className="text-[11px] leading-relaxed">
-                  Another administrator is currently active. For security, only one session is permitted. If the previous tab was closed, you can force release the lock.
+                  Maximum of 2 administrators are currently logged in. For security, only up to 2 active sessions are permitted simultaneously. If previous tabs were closed, you can force release the sessions below.
                 </p>
                 <button
                   type="button"
@@ -1071,20 +1063,20 @@ export default function AdminPage() {
               Reset Candidates
             </button>
 
-            {/* Live Polling Badge */}
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-xl text-[11px] font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Live Updates</span>
+            {/* Free-Tier Quota Saver Badge */}
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-stone-100 text-stone-700 border border-stone-300 rounded-xl text-[11px] font-bold">
+              <span className="w-2 h-2 rounded-full bg-stone-400" />
+              <span>Manual Refresh (Quota Saver)</span>
             </div>
 
             <button
-              onClick={() => { fetchResults(); fetchCandidates(); }}
+              onClick={() => { fetchResults(); fetchCandidates(); fetchElectionStatus(); }}
               disabled={resultsLoading || candidatesLoading}
-              className="px-3.5 py-2 bg-white hover:bg-slate-50 text-stone-700 rounded-xl border border-[#EAE3D9] shadow-xs cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
-              title="Refresh results and candidates immediately"
+              className="px-4 py-2 bg-[#122147] hover:bg-[#1b2f61] text-white rounded-xl shadow-xs cursor-pointer flex items-center gap-2 text-xs font-outfit font-bold uppercase tracking-wider transition-all"
+              title="Click to fetch latest votes, candidates, and election status from Firestore"
             >
-              <RefreshCcw className={`w-3.5 h-3.5 ${resultsLoading || candidatesLoading ? 'animate-spin text-[#7B1436]' : ''}`} />
-              <span className="hidden md:inline">Refresh</span>
+              <RefreshCcw className={`w-3.5 h-3.5 text-[#C59048] ${resultsLoading || candidatesLoading ? 'animate-spin' : ''}`} />
+              <span>{resultsLoading || candidatesLoading ? 'Fetching...' : 'Refresh Data'}</span>
             </button>
           </div>
         </div>
@@ -1877,6 +1869,10 @@ export default function AdminPage() {
                 <p className="text-xs text-stone-500 mt-1">
                   Change your administrative login email address and security password. Changes take effect immediately.
                 </p>
+                <div className="mt-3 p-3 bg-[#FAF3E8] border border-[#E8D3B5] rounded-xl flex items-center justify-between text-xs text-[#A37332]">
+                  <span className="font-semibold">Concurrent Admin Capacity: Up to 2 administrators simultaneously</span>
+                  <span className="px-2 py-0.5 bg-white rounded-md font-mono text-[11px] font-bold border border-[#E8D3B5]">Active Size: 2</span>
+                </div>
               </div>
 
               {credentialsSuccess && (

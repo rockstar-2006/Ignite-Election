@@ -29,12 +29,19 @@ export async function POST(request: NextRequest) {
     const votersSnap = await adminDb.collection('voter_records').get();
     const candidatesSnap = await adminDb.collection('candidates').get();
     const talliesSnap = await adminDb.collection('election_tallies').get();
+    let legacySnap: FirebaseFirestore.QuerySnapshot | null = null;
+    try {
+      legacySnap = await adminDb.collection('voters').get();
+    } catch {}
 
     const allRefs: { ref: FirebaseFirestore.DocumentReference; type: string }[] = [];
     votesSnap.forEach((doc) => allRefs.push({ ref: doc.ref, type: 'vote' }));
     votersSnap.forEach((doc) => allRefs.push({ ref: doc.ref, type: 'voter' }));
     candidatesSnap.forEach((doc) => allRefs.push({ ref: doc.ref, type: 'candidate' }));
     talliesSnap.forEach((doc) => allRefs.push({ ref: doc.ref, type: 'tally' }));
+    if (legacySnap) {
+      legacySnap.forEach((doc) => allRefs.push({ ref: doc.ref, type: 'legacy_voter' }));
+    }
 
     // Also include any stray docs via listDocuments (covers cases where get() pagination missed)
     try {
@@ -79,6 +86,17 @@ export async function POST(request: NextRequest) {
     } catch (usersErr) {
       console.warn('Note: Could not clear users nominations during purge:', usersErr);
     }
+
+    // Comprehensive cleanup using recursiveDelete if available
+    try {
+      if (typeof (adminDb as any).recursiveDelete === 'function') {
+        await (adminDb as any).recursiveDelete(adminDb.collection('votes'));
+        await (adminDb as any).recursiveDelete(adminDb.collection('voter_records'));
+        await (adminDb as any).recursiveDelete(adminDb.collection('election_tallies'));
+        await (adminDb as any).recursiveDelete(adminDb.collection('candidates'));
+        await (adminDb as any).recursiveDelete(adminDb.collection('voters'));
+      }
+    } catch {}
 
     // 4. Invalidate in-memory caches
     invalidateCandidateCache();

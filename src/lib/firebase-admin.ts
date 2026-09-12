@@ -19,9 +19,10 @@ function getAdminCredential() {
 
   // 2. Explicit path in environment variable
   if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
-    const resolvedPath = path.isAbsolute(process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
-      ? process.env.FIREBASE_SERVICE_ACCOUNT_PATH
-      : path.join(process.cwd(), process.env.FIREBASE_SERVICE_ACCOUNT_PATH);
+    const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+    const resolvedPath = path.isAbsolute(serviceAccountEnv)
+      ? serviceAccountEnv
+      : path.join(/*turbopackIgnore: true*/ process.cwd(), serviceAccountEnv);
 
     if (fs.existsSync(resolvedPath)) {
       try {
@@ -35,8 +36,8 @@ function getAdminCredential() {
 
   // 3. Fallback to standard service account JSON files in workspace root
   const standardFiles = [
-    path.join(process.cwd(), 'service-account.json'),
-    path.join(process.cwd(), 'firebase-service-account.json'),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), 'service-account.json'),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), 'firebase-service-account.json'),
   ];
 
   for (const filePath of standardFiles) {

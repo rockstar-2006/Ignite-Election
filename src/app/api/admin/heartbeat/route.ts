@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { touchAdminSession, getActiveAdminSession } from '@/lib/server/admin-auth';
+import { touchAdminSession, getActiveAdminSession, releaseAdminSession } from '@/lib/server/admin-auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    const { sessionId } = await request.json();
+    const body = await request.json().catch(() => ({}));
+    const { sessionId, forceRelease } = body;
+
+    if (forceRelease) {
+      await releaseAdminSession(undefined, true);
+      return NextResponse.json({ success: true, released: true });
+    }
 
     if (!sessionId) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });

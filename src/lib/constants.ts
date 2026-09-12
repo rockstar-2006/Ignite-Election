@@ -27,8 +27,10 @@ export function parseSemesterFromEmail(email: string): string | null {
 
 export const ADMIN_EMAILS = [
   'admin@sode-edu.in',
+  'admin2@sode-edu.in',
   'Shabana.ds@sode-edu.in',
   'ranjan.cs@sode-edu.in',
   'sarvesh.ds@sode-edu.in',
   process.env.ADMIN_EMAIL || '',
 ].filter((email) => email && email.toLowerCase().endsWith('@sode-edu.in'));
+

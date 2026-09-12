@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const emailParam = searchParams.get('email');
     const session = await getServerSession(authOptions);
-    const email = (session?.user?.email || emailParam || '').toLowerCase().trim();
+    const email = (emailParam || session?.user?.email || '').toLowerCase().trim();
 
     if (!email) {
       return NextResponse.json(
