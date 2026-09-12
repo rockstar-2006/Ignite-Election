@@ -7,7 +7,7 @@
   "scope": "/",
   "display": "fullscreen",
   "display_override": ["fullscreen", "window-controls-overlay", "standalone", "browser"],
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "background_color": "#FAF7F2",
   "theme_color": "#7B1436",
   "categories": ["education"],

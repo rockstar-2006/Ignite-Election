@@ -88,7 +88,6 @@ function SignInContent() {
 
   const handleSignIn = async () => {
     try {
-      requestPortalFullscreen();
       setLoading(true);
       setError(null);
       await loginWithGoogle();
@@ -213,9 +212,11 @@ function SignInContent() {
           </div>
         </div>
 
-        <p className="text-center text-xs text-stone-400 mt-6">
-          Shri Madhwa Vadiraja Institute of Technology &amp; Management • Vishwothama Nagar, Bantakal, Udupi
-        </p>
+        <div className="text-center text-xs text-stone-400 mt-6 flex flex-col sm:flex-row items-center justify-center gap-1.5 sm:gap-2">
+          <span>Shri Madhwa Vadiraja Institute of Technology &amp; Management</span>
+          <span className="hidden sm:inline">•</span>
+          <span className="font-semibold text-[#7B1436]">Powered by Edmin</span>
+        </div>
       </div>
     );
   }
@@ -346,123 +347,97 @@ function SignInContent() {
 
           </div>
 
-          {/* RIGHT COLUMN: Ambient Floating Preview Card */}
-          <div className="lg:col-span-5 flex justify-center lg:justify-end">
-            <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 shadow-xl shadow-stone-200/60 border border-[#EAE3D9] relative">
+          {/* RIGHT COLUMN: Official Interactive Sign-In Box */}
+          <div className="lg:col-span-5 flex justify-center lg:justify-end" id="signin-card">
+            <div className="w-full max-w-md bg-white rounded-3xl p-7 sm:p-8 shadow-2xl border border-[#EAE3D9] relative overflow-hidden text-center">
               
-              {/* Card Header with Real Dynamic Status */}
-              <div className="flex items-center justify-between pb-4 mb-4 border-b border-[#F0EBE3]">
-                <span className="text-[11px] font-black uppercase tracking-widest text-[#8C7A6B]">
-                  ELECTION STATUS
-                </span>
-                <div className="flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${electionOpen ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'}`} />
-                  <span className={`text-[11px] font-bold ${electionOpen ? 'text-emerald-800' : 'text-stone-500'}`}>
-                    {electionOpen ? 'Voting Open' : 'Voting Closed'}
-                  </span>
-                </div>
+              {/* Top Institutional Color Bar */}
+              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-[#7B1436] via-[#C59048] to-[#122147]" />
+
+              {/* College Logo */}
+              <div className="flex justify-center mb-4 mt-2">
+                <SMVITMLogo size="lg" showText={false} className="shadow-md rounded-2xl" />
               </div>
 
-              {/* Contested Position List Items */}
-              <div className="space-y-2.5">
-                {/* Position 1 */}
-                <div className="flex items-center justify-between p-2 rounded-2xl hover:bg-[#FAF7F2] transition">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-[#FAF3E8] border border-[#E8D3B5] text-[#7B1436] flex items-center justify-center font-bold text-xs shrink-0">
-                      👑
-                    </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-bold text-[#122147] leading-tight">
-                        President &amp; Vice-President
-                      </h4>
-                      <p className="text-[10px] text-[#122147]/60">1 Winner Each</p>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${electionOpen ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-stone-100 text-stone-600 border-stone-200'}`}>
-                    {electionOpen ? 'Active' : 'Closed'}
-                  </span>
-                </div>
-
-                {/* Position 2 */}
-                <div className="flex items-center justify-between p-2 rounded-2xl hover:bg-[#FAF7F2] transition">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-[#FAF3E8] border border-[#E8D3B5] text-[#7B1436] flex items-center justify-center font-bold text-xs shrink-0">
-                      📜
-                    </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-bold text-[#122147] leading-tight">
-                        General Secretary
-                      </h4>
-                      <p className="text-[10px] text-[#122147]/60">1 Winner (Open Contest)</p>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${electionOpen ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-stone-100 text-stone-600 border-stone-200'}`}>
-                    {electionOpen ? 'Active' : 'Closed'}
-                  </span>
-                </div>
-
-                {/* Position 3 */}
-                <div className="flex items-center justify-between p-2 rounded-2xl hover:bg-[#FAF7F2] transition">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-[#FAF3E8] border border-[#E8D3B5] text-[#7B1436] flex items-center justify-center font-bold text-xs shrink-0">
-                      🎭
-                    </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-bold text-[#122147] leading-tight">
-                        Cultural Coordinator
-                      </h4>
-                      <p className="text-[10px] text-[#122147]/60">2 Winners (1 Boy &amp; 1 Girl)</p>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${electionOpen ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-stone-100 text-stone-600 border-stone-200'}`}>
-                    {electionOpen ? 'Active' : 'Closed'}
-                  </span>
-                </div>
-
-                {/* Position 4 */}
-                <div className="flex items-center justify-between p-2 rounded-2xl hover:bg-[#FAF7F2] transition">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-[#FAF3E8] border border-[#E8D3B5] text-[#7B1436] flex items-center justify-center font-bold text-xs shrink-0">
-                      💻
-                    </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-bold text-[#122147] leading-tight">
-                        Technical Coordinator
-                      </h4>
-                      <p className="text-[10px] text-[#122147]/60">2 Winners (1 Boy &amp; 1 Girl)</p>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${electionOpen ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-stone-100 text-stone-600 border-stone-200'}`}>
-                    {electionOpen ? 'Active' : 'Closed'}
-                  </span>
-                </div>
-
-                {/* Position 5 */}
-                <div className="flex items-center justify-between p-2 rounded-2xl hover:bg-[#FAF7F2] transition">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-[#FAF3E8] border border-[#E8D3B5] text-[#7B1436] flex items-center justify-center font-bold text-xs shrink-0">
-                      🏅
-                    </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-bold text-[#122147] leading-tight">
-                        Sports &amp; Promotional Coordinators
-                      </h4>
-                      <p className="text-[10px] text-[#122147]/60">2 Winners Each (1 Boy &amp; 1 Girl)</p>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${electionOpen ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-stone-100 text-stone-600 border-stone-200'}`}>
-                    {electionOpen ? 'Active' : 'Closed'}
-                  </span>
-                </div>
+              {/* Badge */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FAF3E8] border border-[#E8D3B5] text-[#A37332] text-[10px] font-bold uppercase tracking-wider mb-2">
+                <Sparkles className="w-3 h-3 text-[#C59048]" />
+                <span>Student Elector Verification</span>
               </div>
 
-              {/* Bottom Card Action Pill */}
-              <div 
+              {/* Title & Instructions */}
+              <h3 className="text-xl sm:text-2xl font-outfit font-bold text-[#581c38] tracking-tight">
+                Sign In to Vote
+              </h3>
+              <p className="text-stone-500 text-xs mt-1.5 leading-relaxed">
+                Authenticate using your verified <strong className="text-[#7B1436]">@sode-edu.in</strong> Google account to proceed to your secret ballot.
+              </p>
+
+              {/* Error Alert Display */}
+              {error && (
+                <div className="my-4 p-3.5 bg-[#FDF2F4] border border-[#F0C4CE] rounded-2xl text-[#7B1436] text-xs font-semibold flex items-start gap-2.5 text-left shadow-2xs">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-[#7B1436] mt-0.5" />
+                  <div className="leading-relaxed">{error}</div>
+                </div>
+              )}
+
+              {/* Big Official Google Sign-In Button */}
+              <button
                 onClick={handleSignIn}
-                className="mt-5 p-3.5 bg-[#FAF3E8] hover:bg-[#F5E6D3] text-[#7B1436] rounded-2xl text-xs sm:text-sm font-bold text-center transition-all cursor-pointer flex items-center justify-center gap-2 border border-[#E8D3B5]"
+                disabled={loading}
+                className="w-full mt-6 py-3.5 px-6 rounded-2xl bg-[#7B1436] hover:bg-[#5e0e28] text-white font-bold text-sm shadow-md shadow-[#7B1436]/25 transition-all duration-200 active:scale-95 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-3 group"
               >
-                <span>Sign in with @sode-edu.in to vote</span>
-                <ArrowRight className="w-4 h-4 text-[#7B1436]" />
+                {loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin text-[#C59048]" />
+                    <span>Connecting to Google SSO...</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center p-0.5 shrink-0 shadow-2xs">
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                        <path
+                          fill="#EA4335"
+                          d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"
+                        />
+                        <path
+                          fill="#4285F4"
+                          d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 12s.7 2.3 1.9 4.7l3.7-2.9z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16c1.8 3.7 5.6 7 10.1 7z"
+                        />
+                      </svg>
+                    </div>
+                    <span>Sign in with @sode-edu.in</span>
+                  </>
+                )}
+              </button>
+
+              {/* Shared Voting Device Helper */}
+              <div className="mt-4 p-3 bg-[#FAF7F2] border border-[#EAE3D9] rounded-2xl text-left text-[11px] text-stone-600 flex items-start gap-2 shadow-2xs">
+                <Lock className="w-3.5 h-3.5 text-[#C59048] shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  <strong>Shared Device:</strong> When Google opens, select <strong>&ldquo;Use another account&rdquo;</strong> to sign in with your own student email.
+                </p>
+              </div>
+
+              {/* Security Guarantee Badges */}
+              <div className="mt-5 pt-4 border-t border-[#EAE3D9] flex items-center justify-center gap-3 text-[10px] text-stone-500 font-medium">
+                <span className="flex items-center gap-1 text-emerald-700 font-semibold">
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                  100% Secret Ballot
+                </span>
+                <span>•</span>
+                <span className="flex items-center gap-1 text-[#122147] font-semibold">
+                  <CheckCircle2 className="w-3 h-3 text-[#C59048]" />
+                  One Student, One Vote
+                </span>
               </div>
 
             </div>
@@ -556,6 +531,12 @@ function SignInContent() {
 
           <div className="pt-1 text-[10px] text-[#A37332] font-serif-elegant italic font-semibold">
             सर्वे भद्राणि पश्यन्तु — May all see auspiciousness
+          </div>
+
+          <div className="pt-2 flex items-center justify-center gap-2 text-xs text-[#122147]/60 font-medium">
+            <span>© {new Date().getFullYear()} SMVITM Student Council Elections</span>
+            <span>•</span>
+            <span className="font-semibold text-[#7B1436]">Powered by Edmin</span>
           </div>
 
         </div>

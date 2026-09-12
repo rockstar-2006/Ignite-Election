@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
 import { Maximize2, Minimize2 } from 'lucide-react';
 
 /**
@@ -27,7 +28,7 @@ export function requestPortalFullscreen() {
         const promise = requestMethod.call(docEl);
         if (promise && typeof promise.catch === 'function') {
           promise.catch(() => {
-            // Silently handled if browser requires active user gesture
+            // Handled safely if browser requires active user gesture
           });
         }
       } catch {}
@@ -59,6 +60,7 @@ export function exitPortalFullscreen() {
 export function AutoFullscreen() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const pathname = usePathname();
 
   const checkFullscreen = useCallback(() => {
     const isFs = Boolean(
@@ -74,17 +76,29 @@ export function AutoFullscreen() {
     setMounted(true);
     checkFullscreen();
 
-    // 1. Attempt immediately when portal opens
-    requestPortalFullscreen();
+    // Do not attach listeners on live TV page or auth/signin (prevents blocking Google OAuth redirect)
+    if (pathname === '/live' || pathname === '/tv' || pathname === '/auth/signin' || pathname === '/') {
+      return;
+    }
 
-    // 2. Trigger on first user interaction anywhere on screen
-    const handleGesture = () => {
-      requestPortalFullscreen();
+    const maintainFullscreen = () => {
+      if (
+        !document.fullscreenElement &&
+        !(document as any).webkitFullscreenElement &&
+        !(document as any).mozFullScreenElement &&
+        !(document as any).msFullscreenElement
+      ) {
+        requestPortalFullscreen();
+      }
     };
 
-    window.addEventListener('click', handleGesture, { passive: true });
-    window.addEventListener('touchstart', handleGesture, { passive: true });
-    window.addEventListener('pointerdown', handleGesture, { passive: true });
+    // Try immediately when opened
+    maintainFullscreen();
+
+    // Re-assert fullscreen whenever user touches, clicks or interacts with the portal
+    window.addEventListener('click', maintainFullscreen, { passive: true });
+    window.addEventListener('touchstart', maintainFullscreen, { passive: true });
+    window.addEventListener('keydown', maintainFullscreen, { passive: true });
 
     document.addEventListener('fullscreenchange', checkFullscreen);
     document.addEventListener('webkitfullscreenchange', checkFullscreen);
@@ -92,17 +106,18 @@ export function AutoFullscreen() {
     document.addEventListener('MSFullscreenChange', checkFullscreen);
 
     return () => {
-      window.removeEventListener('click', handleGesture);
-      window.removeEventListener('touchstart', handleGesture);
-      window.removeEventListener('pointerdown', handleGesture);
+      window.removeEventListener('click', maintainFullscreen);
+      window.removeEventListener('touchstart', maintainFullscreen);
+      window.removeEventListener('keydown', maintainFullscreen);
       document.removeEventListener('fullscreenchange', checkFullscreen);
       document.removeEventListener('webkitfullscreenchange', checkFullscreen);
       document.removeEventListener('mozfullscreenchange', checkFullscreen);
       document.removeEventListener('MSFullscreenChange', checkFullscreen);
     };
-  }, [checkFullscreen]);
+  }, [checkFullscreen, pathname]);
 
-  if (!mounted) return null;
+  // Do not show floating button on live broadcast page or before mounted
+  if (!mounted || pathname === '/live' || pathname === '/tv') return null;
 
   return (
     <div className="fixed bottom-3 right-3 z-50 pointer-events-auto print:hidden">
@@ -119,13 +134,13 @@ export function AutoFullscreen() {
         className={`px-3 py-2 rounded-full text-xs font-bold font-outfit flex items-center gap-1.5 shadow-lg border transition-all duration-200 cursor-pointer active:scale-95 ${
           isFullscreen
             ? 'bg-[#122147]/85 hover:bg-[#122147] text-white border-[#122147]/30 backdrop-blur-md opacity-35 hover:opacity-100'
-            : 'bg-[#7B1436] hover:bg-[#5e0e28] text-white border-[#7B1436]/40 animate-pulse'
+            : 'bg-[#7B1436] hover:bg-[#5e0e28] text-white border-[#7B1436]/40 shadow-md animate-pulse'
         }`}
       >
         {isFullscreen ? (
           <>
             <Minimize2 className="w-3.5 h-3.5 text-[#C59048]" />
-            <span className="hidden sm:inline text-[11px]">Fullscreen</span>
+            <span className="hidden sm:inline text-[11px]">Exit Fullscreen</span>
           </>
         ) : (
           <>

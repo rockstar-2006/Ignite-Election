@@ -207,6 +207,9 @@ export default function Dashboard() {
             <p className="text-[10px] text-[#A37332] font-serif italic">
               सर्वे भद्राणि पश्यन्तु — May all see auspiciousness
             </p>
+            <p className="text-[11px] font-semibold text-[#7B1436] pt-1">
+              Powered by Edmin
+            </p>
           </div>
         </div>
       </footer>

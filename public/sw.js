@@ -1,5 +1,5 @@
 // SMVITM Voting PWA Service Worker
-const CACHE_NAME = 'smvitm-voting-v2';
+const CACHE_NAME = 'smvitm-voting-v3';
 const OFFLINE_URL = '/auth/signin';
 
 // Install: cache offline fallback and take over immediately
@@ -28,9 +28,14 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Always bypass for API, Next internals, Turbopack, and dev sockets
+  // Always bypass for localhost, live TV, admin, API, Next internals, Turbopack, and dev sockets
   if (
+    url.hostname === 'localhost' ||
+    url.hostname === '127.0.0.1' ||
     url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/live') ||
+    url.pathname.startsWith('/tv') ||
+    url.pathname.startsWith('/admin') ||
     url.pathname.startsWith('/_next/') ||
     url.pathname.startsWith('/__turbopack') ||
     url.pathname === '/sw.js' ||

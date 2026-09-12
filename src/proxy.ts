@@ -14,6 +14,9 @@ export function proxy(request: NextRequest) {
     pathname === '/auth/signin' ||
     pathname === '/install' ||
     pathname === '/download' ||
+    pathname.startsWith('/live') ||
+    pathname.startsWith('/tv') ||
+    pathname.startsWith('/api/tv-results') ||
     pathname.startsWith('/admin') ||
     pathname.startsWith('/api/admin') ||
     pathname.startsWith('/api/votes/results') ||
