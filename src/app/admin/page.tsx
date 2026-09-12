@@ -738,7 +738,7 @@ export default function AdminPage() {
       setPostResults((prev) =>
         prev.map((pr) => ({
           ...pr,
-          totalVotesInPost: 0,
+          totalVotes: 0,
           candidates: pr.candidates.map((c) => ({
             ...c,
             votes: 0,

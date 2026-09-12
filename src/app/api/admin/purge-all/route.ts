@@ -36,13 +36,48 @@ export async function POST(request: NextRequest) {
     candidatesSnap.forEach((doc) => allRefs.push({ ref: doc.ref, type: 'candidate' }));
     talliesSnap.forEach((doc) => allRefs.push({ ref: doc.ref, type: 'tally' }));
 
-    // 3. Chunk batch deletions into max 450 operations per batch (Firestore limit is 500)
-    const CHUNK_SIZE = 450;
+    // Also include any stray docs via listDocuments (covers cases where get() pagination missed)
+    try {
+      const listedVotes = await adminDb.collection('votes').listDocuments();
+      listedVotes.forEach((r) => {
+        if (!allRefs.some((x) => x.ref.path === r.path)) allRefs.push({ ref: r, type: 'vote' });
+      });
+    } catch {}
+    try {
+      const listedVoters = await adminDb.collection('voter_records').listDocuments();
+      listedVoters.forEach((r) => {
+        if (!allRefs.some((x) => x.ref.path === r.path)) allRefs.push({ ref: r, type: 'voter' });
+      });
+    } catch {}
+    try {
+      const legacyVoters = await adminDb.collection('voters').listDocuments();
+      legacyVoters.forEach((r) => allRefs.push({ ref: r, type: 'voter' }));
+    } catch {}
+
+    // 3. Chunk batch deletions into max 400 operations per batch (Firestore limit is 500, 400 safe)
+    const CHUNK_SIZE = 400;
     for (let i = 0; i < allRefs.length; i += CHUNK_SIZE) {
       const chunk = allRefs.slice(i, i + CHUNK_SIZE);
       const batch = adminDb.batch();
       chunk.forEach((item) => batch.delete(item.ref));
       await batch.commit();
+    }
+
+    // 3b. Clear nominations array from users collection (so candidates don't reappear via users)
+    try {
+      const usersSnap = await adminDb.collection('users').get();
+      const usersWithNoms = usersSnap.docs.filter((d) => {
+        const u = d.data();
+        return Array.isArray(u?.nominations) && u.nominations.length > 0;
+      });
+      for (let i = 0; i < usersWithNoms.length; i += 400) {
+        const chunk = usersWithNoms.slice(i, i + 400);
+        const batch = adminDb.batch();
+        chunk.forEach((d) => batch.update(d.ref, { nominations: [] }));
+        await batch.commit();
+      }
+    } catch (usersErr) {
+      console.warn('Note: Could not clear users nominations during purge:', usersErr);
     }
 
     // 4. Invalidate in-memory caches

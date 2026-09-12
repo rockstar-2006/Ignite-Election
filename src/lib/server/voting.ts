@@ -5,6 +5,54 @@ import crypto from 'crypto';
 
 const BALLOT_ENCRYPTION_KEY = process.env.NEXTAUTH_SECRET || 'smvitm_secret_ballot_vault_key_2026';
 
+// Helpers to safely encode candidate IDs for Firestore map keys (avoids dot/field-path corruption)
+// Firestore field paths treat '.' as nesting; email-based IDs like user@sode-edu.in contain dots
+function encodeCandidateKey(id: string): string {
+  return Buffer.from(id, 'utf8').toString('base64url');
+}
+function decodeCandidateKey(encoded: string): string {
+  try {
+    return Buffer.from(encoded, 'base64url').toString('utf8');
+  } catch {
+    return encoded;
+  }
+}
+function decodeCandidateVotesMap(raw: Record<string, any>): Record<string, number> {
+  const decoded: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw || {})) {
+    // Handle already-decoded legacy keys (without encoding) or new encoded keys
+    let candidateId = k;
+    // Try to detect base64url encoding: round-trip test
+    if (/^[A-Za-z0-9_-]+$/.test(k) && k.length >= 8) {
+      try {
+        const maybe = Buffer.from(k, 'base64url').toString('utf8');
+        if (Buffer.from(maybe, 'utf8').toString('base64url') === k) {
+          candidateId = maybe;
+        }
+      } catch {}
+    }
+    if (typeof v === 'number') {
+      decoded[candidateId] = (decoded[candidateId] || 0) + v;
+    } else if (typeof v === 'object' && v !== null) {
+      // Legacy corruption: dot-split created nested map (e.g. candidateVotes: { 'user@example': { 'com': 1 } })
+      // Flatten by summing leaf numbers under this prefix - note original ID is lost, so we cannot perfectly restore.
+      // We treat nested leaves as separate entries and log warning; best to reset votes after fix.
+      const flatten = (obj: any, prefix = candidateId): void => {
+        for (const [nk, nv] of Object.entries(obj)) {
+          if (typeof nv === 'number') {
+            const reconstructed = `${prefix}.${nk}`;
+            decoded[reconstructed] = (decoded[reconstructed] || 0) + nv;
+          } else if (typeof nv === 'object' && nv !== null) {
+            flatten(nv, `${prefix}.${nk}`);
+          }
+        }
+      };
+      flatten(v as any);
+    }
+  }
+  return decoded;
+}
+
 export function hashVoterIdentifier(email: string): string {
   return crypto.createHmac('sha256', BALLOT_ENCRYPTION_KEY).update(email.toLowerCase().trim()).digest('hex');
 }
@@ -456,6 +504,10 @@ export async function clearAllVotes(): Promise<{ deletedVotes: number; deletedVo
       await batch.commit();
     }
 
+    // Ensure any in-memory tally-related caches are fresh (no tally cache currently, but invalidate related)
+    // Candidate cache not affected but invalidate to force fresh read if needed
+    // Do not invalidate election status as it's unrelated
+
     return { deletedVotes: votesSnap.size, deletedVoters: votersSnap.size };
   } catch (error) {
     console.error('Error clearing votes from Firestore:', error);
@@ -568,8 +620,8 @@ export async function submitBallot(
     const candidates = await getCandidates();
     const candidateMap = new Map(candidates.map((c) => [c.id, c]));
 
-    // 3. Normalize selections
-    const normalizedVotes: { postId: string; candidateId: string }[] = [];
+    // 3. Normalize selections (deduplicate to prevent double counting from duplicate IDs)
+    let normalizedVotes: { postId: string; candidateId: string }[] = [];
     for (const [postId, candidateVal] of Object.entries(selections)) {
       if (Array.isArray(candidateVal)) {
         for (const cId of candidateVal) {
@@ -578,6 +630,20 @@ export async function submitBallot(
       } else if (typeof candidateVal === 'string' && candidateVal) {
         normalizedVotes.push({ postId, candidateId: candidateVal });
       }
+    }
+
+    // Deduplicate same post+ candidate pair (protects against double counting via manipulated payload)
+    {
+      const seen = new Set<string>();
+      const deduped: typeof normalizedVotes = [];
+      for (const v of normalizedVotes) {
+        const key = `${v.postId}:${v.candidateId}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          deduped.push(v);
+        }
+      }
+      normalizedVotes = deduped;
     }
 
     if (normalizedVotes.length === 0) {
@@ -661,14 +727,16 @@ export async function submitBallot(
         transaction.set(voteRef, voteData);
 
         // Step D: Increment atomic pre-aggregated tally for this post and candidate
+        // Use base64url-encoded map key to avoid Firestore dot-path corruption for email-based candidate IDs
         const tallyRef = adminDb.collection('election_tallies').doc(postId);
+        const encodedKey = encodeCandidateKey(candidateId);
         transaction.set(
           tallyRef,
           {
             postId,
             totalVotes: admin.firestore.FieldValue.increment(1),
-            [`candidateVotes.${candidateId}`]: admin.firestore.FieldValue.increment(1),
             lastUpdated: isoTime,
+            candidateVotes: { [encodedKey]: admin.firestore.FieldValue.increment(1) },
           },
           { merge: true }
         );
@@ -752,7 +820,7 @@ export async function getVotingResults(filterSemester?: string): Promise<{
         const d = doc.data();
         talliesMap[doc.id] = {
           totalVotes: d.totalVotes || 0,
-          candidateVotes: d.candidateVotes || {},
+          candidateVotes: decodeCandidateVotesMap(d.candidateVotes || {}),
         };
       }
     });
@@ -972,10 +1040,14 @@ async function backfillElectionTallies(): Promise<void> {
     const batch = adminDb.batch();
     for (const [postId, tally] of Object.entries(postTallies)) {
       const ref = adminDb.collection('election_tallies').doc(postId);
+      const encodedVotes: Record<string, number> = {};
+      for (const [rawId, count] of Object.entries(tally.candidateVotes)) {
+        encodedVotes[encodeCandidateKey(rawId)] = count;
+      }
       batch.set(ref, {
         postId,
         totalVotes: tally.totalVotes,
-        candidateVotes: tally.candidateVotes,
+        candidateVotes: encodedVotes,
         lastUpdated: new Date().toISOString(),
       });
     }
